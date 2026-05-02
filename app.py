@@ -32,7 +32,7 @@ def get_gsheet():
             sheet_url = st.secrets["gcp_service_account"]["SHEET_URL"]
         except:
             sheet_url = st.secrets.get("SHEET_URL", "")
-    sheet = client.open_by_url(sheet_url).sheet1
+    sheet = client.open_by_url(sheet_url).worksheet("현기준")
     return sheet
 
 # ── 구글 시트 데이터 불러오기 ─────────────────────────────
@@ -80,9 +80,6 @@ with col_refresh:
 
 try:
     df = load_data()
-    st.write("컬럼 목록:", df.columns.tolist())
-    st.write("데이터 미리보기:", df.head(3))
-    st.stop()
 except Exception as e:
     import traceback
     st.error(f"구글 시트 연결 실패: {e}")
