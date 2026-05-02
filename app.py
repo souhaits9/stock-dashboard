@@ -24,7 +24,15 @@ def get_gsheet():
         scopes=scopes
     )
     client = gspread.authorize(creds)
-    sheet = client.open_by_url(st.secrets["SHEET_URL"]).sheet1
+    # SHEET_URL을 여러 방식으로 시도
+    try:
+        sheet_url = st.secrets["SHEET_URL"]
+    except:
+        try:
+            sheet_url = st.secrets["gcp_service_account"]["SHEET_URL"]
+        except:
+            sheet_url = st.secrets.get("SHEET_URL", "")
+    sheet = client.open_by_url(sheet_url).sheet1
     return sheet
 
 # ── 구글 시트 데이터 불러오기 ─────────────────────────────
