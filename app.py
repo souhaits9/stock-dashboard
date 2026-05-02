@@ -254,13 +254,12 @@ for acct in df["계좌"].unique():
         "rate": acct_rate,
         "today": acct_today,
     }
+    today_rate = (acct_today / acct_eval * 100) if acct_eval else 0
     summary_rows.append({
         "계좌": acct,
-        "투자금액(원)": f"{acct_invest:,.0f}",
         "평가금액(원)": f"{acct_eval:,.0f}",
-        "수익(원)": f"{acct_profit:+,.0f}",
-        "수익률": f"{acct_rate:+.2f}%",
         "오늘변동(원)": f"{acct_today:+,.0f}",
+        "오늘변동률": f"{today_rate:+.2f}%",
         "종목수": f"{len(acct_data)}개",
     })
 
