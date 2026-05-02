@@ -231,21 +231,27 @@ st.subheader("📋 계좌별 상세 현황")
 
 for acct in df["계좌"].unique():
     acct_data = df[df["계좌"] == acct].copy()
-    acct_eval = acct_data["현재가치"].sum()
-    acct_invest = account_totals.get(acct, 0)
+    acct_eval = acct_data["현재가치"].sum()       # G열 합계
+    acct_invest = account_totals.get(acct, 0)     # B열 연금총액
     acct_profit = acct_eval - acct_invest
     acct_rate = (acct_profit / acct_invest * 100) if acct_invest else 0
-    acct_today = acct_data["자산변동"].sum()
+    acct_today = acct_data["자산변동"].sum()       # J열 합계
+    today_sign = "+" if acct_today >= 0 else ""
     emoji = "🟢" if acct_profit >= 0 else "🔴"
+    today_emoji = "📈" if acct_today >= 0 else "📉"
 
-    with st.expander(f"{emoji} {acct}  |  평가금액: {acct_eval:,.0f}원  |  수익률: {acct_rate:+.2f}%"):
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("투자금액", f"{acct_invest:,.0f}원")
-        m2.metric("평가금액", f"{acct_eval:,.0f}원")
-        m3.metric("총 수익", f"{acct_profit:,.0f}원", delta=f"{acct_rate:+.2f}%")
-        m4.metric("오늘 변동", f"{acct_today:,.0f}원")
+    with st.expander(
+        f"{emoji} {acct}  |  평가금액: {acct_eval:,.0f}원  |  수익률: {acct_rate:+.2f}%  |  {today_emoji} 오늘변동: {today_sign}{acct_today:,.0f}원"
+    ):
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("📥 투자금액", f"{acct_invest:,.0f}원")
+        m2.metric("💰 평가금액", f"{acct_eval:,.0f}원")
+        m3.metric("💹 총 수익", f"{acct_profit:,.0f}원", delta=f"{acct_rate:+.2f}%")
+        m4.metric("📅 오늘 변동", f"{acct_today:+,.0f}원",
+                  delta=f"{acct_today/acct_eval*100:+.2f}%" if acct_eval else None)
+        m5.metric("📂 종목 수", f"{len(acct_data)}개")
 
-        display_df = acct_data[["종목", "주식수", "실시간가격", "현재가치", "자산변동"]].copy()
+        display_df = acct_data[["종목", "주식수", "현재주식가격", "현재가치", "자산변동"]].copy()
         display_df.columns = ["종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
         display_df["보유수량"] = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
         display_df["현재가(원)"] = display_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
