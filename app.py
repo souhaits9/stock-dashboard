@@ -133,7 +133,7 @@ for _, row in df.iterrows():
             account_totals[acct] = 0
 
 # ── 상단 요약 카드
-total_eval = df["실시간가치"].sum()
+total_eval = df["현재가치"].sum()  # G열 합계 사용
 total_invest = sum(account_totals.values())
 total_profit = total_eval - total_invest
 total_rate = (total_profit / total_invest * 100) if total_invest else 0
@@ -149,16 +149,16 @@ c4.metric("📅 오늘 자산변동", f"{today_change:,.0f}원")
 st.divider()
 
 # ── 시각화
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 # 계좌별 자산 비중 파이차트
 with col1:
     st.subheader("🥧 계좌별 자산 비중")
-    acct_df = df.groupby("계좌")["실시간가치"].sum().reset_index()
-    acct_df = acct_df[acct_df["실시간가치"] > 0]
+    acct_df = df.groupby("계좌")["현재가치"].sum().reset_index()
+    acct_df = acct_df[acct_df["현재가치"] > 0]
     fig_pie = px.pie(
         acct_df,
-        values="실시간가치",
+        values="현재가치",
         names="계좌",
         hole=0.4,
         color_discrete_sequence=px.colors.qualitative.Set3
@@ -174,57 +174,55 @@ with col1:
 # 종목별 현재가치 막대차트
 with col2:
     st.subheader("📊 종목별 현재가치")
-    stock_df = df.groupby("종목")["실시간가치"].sum().reset_index()
-    stock_df = stock_df[stock_df["실시간가치"] > 0].sort_values("실시간가치", ascending=True)
+    stock_df = df.groupby("종목")["현재가치"].sum().reset_index()
+    stock_df = stock_df[stock_df["현재가치"] > 0].sort_values("현재가치", ascending=True)
     fig_bar = px.bar(
         stock_df,
-        x="실시간가치",
+        x="현재가치",
         y="종목",
         orientation="h",
-        color="실시간가치",
+        color="현재가치",
         color_continuous_scale="Blues",
-        text=stock_df["실시간가치"].apply(lambda x: f"{x/100000000:.1f}억")
+        text=stock_df["현재가치"].apply(lambda x: f"{x/100000000:.1f}억")
     )
     fig_bar.update_traces(textposition="outside")
     fig_bar.update_layout(
         showlegend=False,
         coloraxis_showscale=False,
         margin=dict(t=20, b=20, l=20, r=80),
-        height=420,
+        height=500,
         xaxis_title="",
         yaxis_title=""
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-st.divider()
-
 # 오늘 자산변동 차트
-st.subheader("📅 오늘 종목별 자산변동")
-change_df = df.groupby("종목")["자산변동"].sum().reset_index()
-change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
-change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
-change_df["표시금액"] = change_df["자산변동"].apply(lambda x: f"{x:+,.0f}원")
-
-fig_change = px.bar(
-    change_df,
-    x="자산변동",
-    y="종목",
-    orientation="h",
-    color="색상",
-    color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
-    text="표시금액"
-)
-fig_change.update_traces(textposition="outside")
-fig_change.update_layout(
-    showlegend=True,
-    legend=dict(title=""),
-    margin=dict(t=20, b=20, l=20, r=150),
-    height=420,
-    xaxis_title="",
-    yaxis_title="",
-    xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor="gray")
-)
-st.plotly_chart(fig_change, use_container_width=True)
+with col3:
+    st.subheader("📅 오늘 종목별 자산변동")
+    change_df = df.groupby("종목")["자산변동"].sum().reset_index()
+    change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
+    change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
+    change_df["표시금액"] = change_df["자산변동"].apply(lambda x: f"{x:+,.0f}원")
+    fig_change = px.bar(
+        change_df,
+        x="자산변동",
+        y="종목",
+        orientation="h",
+        color="색상",
+        color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
+        text="표시금액"
+    )
+    fig_change.update_traces(textposition="outside")
+    fig_change.update_layout(
+        showlegend=True,
+        legend=dict(title=""),
+        margin=dict(t=20, b=20, l=20, r=120),
+        height=500,
+        xaxis_title="",
+        yaxis_title="",
+        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor="gray")
+    )
+    st.plotly_chart(fig_change, use_container_width=True)
 
 st.divider()
 
@@ -233,7 +231,7 @@ st.subheader("📋 계좌별 상세 현황")
 
 for acct in df["계좌"].unique():
     acct_data = df[df["계좌"] == acct].copy()
-    acct_eval = acct_data["실시간가치"].sum()
+    acct_eval = acct_data["현재가치"].sum()
     acct_invest = account_totals.get(acct, 0)
     acct_profit = acct_eval - acct_invest
     acct_rate = (acct_profit / acct_invest * 100) if acct_invest else 0
@@ -247,7 +245,7 @@ for acct in df["계좌"].unique():
         m3.metric("총 수익", f"{acct_profit:,.0f}원", delta=f"{acct_rate:+.2f}%")
         m4.metric("오늘 변동", f"{acct_today:,.0f}원")
 
-        display_df = acct_data[["종목", "주식수", "실시간가격", "실시간가치", "자산변동"]].copy()
+        display_df = acct_data[["종목", "주식수", "실시간가격", "현재가치", "자산변동"]].copy()
         display_df.columns = ["종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
         display_df["보유수량"] = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
         display_df["현재가(원)"] = display_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
@@ -259,7 +257,7 @@ st.divider()
 
 # ── 전체 종목 현황표
 st.subheader("📑 전체 종목 현황표")
-full_df = df[["계좌", "종목", "주식수", "실시간가격", "실시간가치", "자산변동"]].copy()
+full_df = df[["계좌", "종목", "주식수", "실시간가격", "현재가치", "자산변동"]].copy()
 full_df.columns = ["계좌", "종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
 full_df["보유수량"] = full_df["보유수량"].apply(lambda x: f"{int(x):,}")
 full_df["현재가(원)"] = full_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
