@@ -39,8 +39,13 @@ def get_gsheet():
 @st.cache_data(ttl=300)
 def load_data():
     sheet = get_gsheet()
-    rows = sheet.get_all_records()
-    df = pd.DataFrame(rows)
+    all_values = sheet.get_all_values()
+    if not all_values:
+        return pd.DataFrame()
+    headers = all_values[0]
+    rows = all_values[1:]
+    df = pd.DataFrame(rows, columns=headers)
+    df = df.loc[:, df.columns != ""]
     df.columns = df.columns.str.strip()
     return df
 
