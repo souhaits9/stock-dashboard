@@ -236,20 +236,51 @@ st.divider()
 # ── 계좌별 상세 현황
 st.subheader("📋 계좌별 상세 현황")
 
+# 계좌 요약 테이블 먼저 표시
+summary_rows = []
+acct_details = {}
 for acct in df["계좌"].unique():
     acct_data = df[df["계좌"] == acct].copy()
-    acct_eval = acct_data["현재가치"].sum()       # G열 합계
-    acct_invest = account_totals.get(acct, 0)     # B열 연금총액
+    acct_eval = acct_data["현재가치"].sum()
+    acct_invest = account_totals.get(acct, 0)
     acct_profit = acct_eval - acct_invest
     acct_rate = (acct_profit / acct_invest * 100) if acct_invest else 0
-    acct_today = acct_data["자산변동"].sum()       # J열 합계
-    today_sign = "+" if acct_today >= 0 else ""
-    emoji = "🟢" if acct_profit >= 0 else "🔴"
+    acct_today = acct_data["자산변동"].sum()
+    acct_details[acct] = {
+        "data": acct_data,
+        "eval": acct_eval,
+        "invest": acct_invest,
+        "profit": acct_profit,
+        "rate": acct_rate,
+        "today": acct_today,
+    }
+    summary_rows.append({
+        "계좌": acct,
+        "투자금액(원)": f"{acct_invest:,.0f}",
+        "평가금액(원)": f"{acct_eval:,.0f}",
+        "수익(원)": f"{acct_profit:+,.0f}",
+        "수익률": f"{acct_rate:+.2f}%",
+        "오늘변동(원)": f"{acct_today:+,.0f}",
+        "종목수": f"{len(acct_data)}개",
+    })
+
+summary_table = pd.DataFrame(summary_rows)
+st.dataframe(summary_table, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# 계좌별 상세 펼치기
+for acct, det in acct_details.items():
+    acct_eval   = det["eval"]
+    acct_invest = det["invest"]
+    acct_profit = det["profit"]
+    acct_rate   = det["rate"]
+    acct_today  = det["today"]
+    acct_data   = det["data"]
+    emoji       = "🟢" if acct_profit >= 0 else "🔴"
     today_emoji = "📈" if acct_today >= 0 else "📉"
 
-    with st.expander(
-        f"{emoji} {acct}  |  평가금액: {acct_eval:,.0f}원  |  수익률: {acct_rate:+.2f}%  |  {today_emoji} 오늘변동: {today_sign}{acct_today:,.0f}원"
-    ):
+    with st.expander(f"{emoji} {acct}"):
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📥 투자금액", f"{acct_invest:,.0f}원")
         m2.metric("💰 평가금액", f"{acct_eval:,.0f}원")
@@ -260,7 +291,7 @@ for acct in df["계좌"].unique():
 
         display_df = acct_data[["종목", "주식수", "현재주식가격", "현재가치", "자산변동"]].copy()
         display_df.columns = ["종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
-        display_df["보유수량"] = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
+        display_df["보유수량"]   = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
         display_df["현재가(원)"] = display_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
         display_df["평가금액(원)"] = display_df["평가금액(원)"].apply(lambda x: f"{x:,.0f}")
         display_df["오늘변동(원)"] = display_df["오늘변동(원)"].apply(lambda x: f"{x:+,.0f}")
