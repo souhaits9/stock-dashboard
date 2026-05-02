@@ -57,6 +57,72 @@ def load_data():
     df = df.rename(columns=col_map)
     return df
 
+# ── summary 탭 로딩 (연간/월간 수익률)
+@st.cache_data(ttl=300)
+def load_summary():
+    try:
+        creds_info = st.secrets["gcp_service_account"]
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        try:
+            sheet_url = st.secrets["SHEET_URL"]
+        except:
+            sheet_url = creds_info["SHEET_URL"]
+        sheet = client.open_by_url(sheet_url).worksheet("summary")
+        all_values = sheet.get_all_values()
+        return all_values
+    except:
+        return []
+
+def get_period_returns(summary_values, current_eval):
+    """연간/월간 수익률 계산"""
+    import datetime
+    now = datetime.datetime.now()
+    current_year = now.year
+    current_month = now.month
+
+    # 9행(인덱스8)부터 월별 데이터: A=연도, B=월, C=자산
+    year_asset = {}   # {(year, month): asset}
+    current_year_val = None
+    for row in summary_values[9:]:  # 10행부터 데이터
+        if len(row) < 3:
+            continue
+        year_str = str(row[0]).strip()
+        month_str = str(row[1]).strip().replace("월", "")
+        asset_str = str(row[2]).strip().replace(",", "")
+        if year_str:
+            current_year_val = year_str
+        try:
+            year = int(current_year_val.replace("년", "")) if current_year_val else 0
+            month = int(month_str)
+            asset = float(asset_str) if asset_str else 0
+            if asset > 0:
+                year_asset[(year, month)] = asset
+        except:
+            continue
+
+    # 올해 수익률: 작년 12월 자산 대비
+    ytd_rate = None
+    prev_year_dec = year_asset.get((current_year - 1, 12))
+    if prev_year_dec and prev_year_dec > 0:
+        ytd_change = current_eval - prev_year_dec
+        ytd_rate = ytd_change / prev_year_dec * 100
+
+    # 이번달 수익률: 전달 말 자산 대비
+    mtd_rate = None
+    prev_month = current_month - 1 if current_month > 1 else 12
+    prev_month_year = current_year if current_month > 1 else current_year - 1
+    prev_month_asset = year_asset.get((prev_month_year, prev_month))
+    if prev_month_asset and prev_month_asset > 0:
+        mtd_change = current_eval - prev_month_asset
+        mtd_rate = mtd_change / prev_month_asset * 100
+
+    return ytd_rate, mtd_rate, prev_year_dec, prev_month_asset
+
 # ── 네이버 금융 현재가 조회
 @st.cache_data(ttl=60)
 def get_current_price(code):
@@ -140,18 +206,32 @@ with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
 account_totals = acct_total_map
 
 # ── 상단 요약 카드
-total_eval = df["현재가치"].sum()  # G열 합계 사용
-total_invest = sum(account_totals.values())
-total_profit = total_eval - total_invest
-total_rate = (total_profit / total_invest * 100) if total_invest else 0
+total_eval = df["현재가치"].sum()
 today_change = df["자산변동"].sum()
+today_rate = (today_change / (total_eval - today_change) * 100) if (total_eval - today_change) else 0
+
+# 연간/월간 수익률 계산
+summary_values = load_summary()
+ytd_rate, mtd_rate, prev_year_dec, prev_month_asset = get_period_returns(summary_values, total_eval)
 
 st.divider()
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("💰 총 투자금액", f"{total_invest:,.0f}원")
-c2.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
-c3.metric("💹 총 수익", f"{total_profit:,.0f}원", delta=f"{total_rate:.2f}%")
-c4.metric("📅 오늘 자산변동", f"{today_change:,.0f}원")
+c1.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
+c2.metric("📅 오늘 자산변동", f"{today_change:+,.0f}원", delta=f"{today_rate:+.2f}%")
+
+if ytd_rate is not None:
+    ytd_change = total_eval - prev_year_dec
+    c3.metric("📆 올해 수익률", f"{ytd_rate:+.2f}%",
+              delta=f"{ytd_change:+,.0f}원", help=f"작년 12월말 자산: {prev_year_dec:,.0f}원")
+else:
+    c3.metric("📆 올해 수익률", "데이터 없음")
+
+if mtd_rate is not None:
+    mtd_change = total_eval - prev_month_asset
+    c4.metric("📅 이번달 수익률", f"{mtd_rate:+.2f}%",
+              delta=f"{mtd_change:+,.0f}원", help=f"전달 말 자산: {prev_month_asset:,.0f}원")
+else:
+    c4.metric("📅 이번달 수익률", "데이터 없음")
 
 st.divider()
 
