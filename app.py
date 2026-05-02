@@ -94,14 +94,28 @@ except Exception as e:
     st.stop()
 
 # ── 데이터 전처리
+# 1. 계좌명 먼저 채우기 (필터링 전에 해야 병합셀이 올바르게 처리됨)
+df["계좌"] = df["계좌"].replace("", pd.NA).ffill()
+
+# 2. 연금총액도 계좌별로 먼저 채우기
+df["연금총액"] = df["연금총액"].replace("", pd.NA)
+# 계좌별 연금총액 저장 (필터링 전)
+acct_total_map = {}
+for _, row in df.iterrows():
+    acct = row["계좌"]
+    val = str(row.get("연금총액", "")).replace(",", "").strip()
+    if val and val != "nan" and acct not in acct_total_map:
+        try:
+            acct_total_map[acct] = float(val)
+        except:
+            pass
+
+# 3. 불필요한 행 제거
 df = df[
     df["종목"].notna() &
     (df["종목"].str.strip() != "") &
     (~df["종목"].str.strip().isin(["안전자산비율", "현금1"]))
 ].copy()
-
-# 계좌명 앞으로 채우기 (병합셀 처리)
-df["계좌"] = df["계좌"].replace("", pd.NA).ffill()
 
 # 숫자형 변환
 for col in ["주식수", "현재주식가격", "현재가치", "연금총액", "가격변동", "자산변동"]:
@@ -122,15 +136,8 @@ with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
     df["실시간가격"] = df["종목코드"].astype(str).map(prices)
     df["실시간가치"] = df["주식수"] * df["실시간가격"]
 
-# 계좌별 투자원금
-account_totals = {}
-for _, row in df.iterrows():
-    acct = row["계좌"]
-    if acct not in account_totals:
-        try:
-            account_totals[acct] = float(row.get("연금총액", 0) or 0)
-        except:
-            account_totals[acct] = 0
+# 계좌별 투자원금 (필터링 전에 저장한 값 사용)
+account_totals = acct_total_map
 
 # ── 상단 요약 카드
 total_eval = df["현재가치"].sum()  # G열 합계 사용
