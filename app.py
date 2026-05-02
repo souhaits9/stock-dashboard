@@ -76,7 +76,9 @@ with col_refresh:
 try:
     df = load_data()
 except Exception as e:
+    import traceback
     st.error(f"구글 시트 연결 실패: {e}")
+    st.code(traceback.format_exc())
     st.stop()
 
 # ── 데이터 전처리 ─────────────────────────────────────────
