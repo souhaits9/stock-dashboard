@@ -2,28 +2,52 @@ import streamlit as st
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-import json
-import os
+import gspread
+from google.oauth2.service_account import Credentials
 
-# ── 파일 저장/불러오기 ────────────────────────────────────
-SAVE_FILE = "stocks_data.json"
+# ── 페이지 설정 ───────────────────────────────────────────
+st.set_page_config(
+    page_title="내 자산 관리 대시보드",
+    page_icon="📊",
+    layout="wide"
+)
 
-def load_stocks():
-    if os.path.exists(SAVE_FILE):
-        with open(SAVE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+# ── 구글 시트 연결 ────────────────────────────────────────
+@st.cache_resource
+def get_gsheet():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scopes
+    )
+    client = gspread.authorize(creds)
+    sheet = client.open_by_url(st.secrets["SHEET_URL"]).sheet1
+    return sheet
 
-def save_stocks(stocks):
-    with open(SAVE_FILE, "w", encoding="utf-8") as f:
-        json.dump(stocks, f, ensure_ascii=False, indent=2)
+# ── 구글 시트 데이터 불러오기 ─────────────────────────────
+@st.cache_data(ttl=300)
+def load_data():
+    sheet = get_gsheet()
+    rows = sheet.get_all_records()
+    df = pd.DataFrame(rows)
+    df.columns = df.columns.str.strip()
+    return df
 
-# ── 네이버 금융에서 현재가 조회 ──────────────────────────
+# ── 네이버 금융 현재가 조회 ───────────────────────────────
+@st.cache_data(ttl=60)
 def get_current_price(code):
     try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        clean_code = code.split(":")[-1].replace("a", "").upper()
+        if not clean_code.isdigit():
+            clean_code = ''.join(filter(str.isdigit, clean_code))
+        if not clean_code:
+            return 0
+        url = f"https://finance.naver.com/item/main.naver?code={clean_code}"
         headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
         price = soup.select_one(".today .blind")
         if price:
@@ -32,154 +56,168 @@ def get_current_price(code):
     except:
         return 0
 
-# ── 종목코드 검색 (네이버 자동완성) ──────────────────────
-def search_stock(name):
-    try:
-        url = f"https://ac.finance.naver.com/ac?q={name}&q_enc=UTF-8&target=stock"
-        res = requests.get(url)
-        data = res.json()
-        results = []
-        for item in data.get("items", [[]])[0]:
-            results.append({"name": item[0], "code": item[1]})
-        return results
-    except:
-        return []
-
-# ── 페이지 설정 ───────────────────────────────────────────
-st.set_page_config(page_title="내 자산 관리", page_icon="📊", layout="wide")
+# ── 메인 ─────────────────────────────────────────────────
 st.title("📊 내 자산 관리 대시보드")
 
-# ── 세션 초기화 (파일에서 불러오기) ──────────────────────
-if "stocks" not in st.session_state:
-    st.session_state.stocks = load_stocks()
-
-# ════════════════════════════════════════════════════════
-# 사이드바: 종목 추가
-# ════════════════════════════════════════════════════════
-with st.sidebar:
-    st.header("➕ 종목 추가")
-
-    search_query = st.text_input("종목명 검색", placeholder="예: 삼성전자")
-    selected_code = ""
-    selected_name = ""
-
-    if search_query:
-        results = search_stock(search_query)
-        if results:
-            options = {f"{r['name']} ({r['code']})": r for r in results[:5]}
-            chosen = st.selectbox("종목 선택", list(options.keys()))
-            if chosen:
-                selected_code = options[chosen]["code"]
-                selected_name = options[chosen]["name"]
-        else:
-            st.warning("검색 결과가 없습니다.")
-            st.caption("종목코드를 직접 입력하세요")
-            selected_code = st.text_input("종목코드 (6자리)", placeholder="005930")
-            selected_name = st.text_input("종목명", placeholder="삼성전자")
-
-    qty = st.number_input("보유 수량 (주)", min_value=1, value=1, step=1)
-    buy_price = st.number_input("매입 단가 (원)", min_value=1, value=10000, step=100)
-
-    if st.button("➕ 추가", use_container_width=True):
-        if selected_code and selected_name:
-            existing = [s for s in st.session_state.stocks if s["code"] == selected_code]
-            if existing:
-                st.warning(f"{selected_name}은 이미 추가되어 있습니다.")
-            else:
-                st.session_state.stocks.append({
-                    "name": selected_name,
-                    "code": selected_code,
-                    "qty": qty,
-                    "buy_price": buy_price
-                })
-                save_stocks(st.session_state.stocks)  # 파일에 저장
-                st.success(f"{selected_name} 추가 완료!")
-                st.rerun()
-        else:
-            st.error("종목을 먼저 검색해 주세요.")
-
-    st.divider()
-    if st.button("🔄 현재가 새로고침", use_container_width=True):
+col_refresh, _ = st.columns([1, 5])
+with col_refresh:
+    if st.button("🔄 새로고침", use_container_width=True):
+        st.cache_data.clear()
         st.rerun()
 
-# ════════════════════════════════════════════════════════
-# 메인 화면
-# ════════════════════════════════════════════════════════
-if not st.session_state.stocks:
-    st.info("👈 왼쪽 사이드바에서 보유 종목을 추가해 주세요!")
-else:
-    rows = []
-    total_buy = 0
-    total_eval = 0
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"구글 시트 연결 실패: {e}")
+    st.stop()
 
-    with st.spinner("현재가 조회 중..."):
-        for s in st.session_state.stocks:
-            cur = get_current_price(s["code"])
-            buy_total = s["qty"] * s["buy_price"]
-            eval_total = s["qty"] * cur
-            profit = eval_total - buy_total
-            rate = (profit / buy_total * 100) if buy_total else 0
-            total_buy += buy_total
-            total_eval += eval_total
-            rows.append({
-                "종목명": s["name"],
-                "종목코드": s["code"],
-                "수량": s["qty"],
-                "매입단가": s["buy_price"],
-                "현재가": cur,
-                "매입금액": buy_total,
-                "평가금액": eval_total,
-                "평가손익": profit,
-                "수익률(%)": round(rate, 2)
-            })
+# ── 데이터 전처리 ─────────────────────────────────────────
+df = df[
+    df["종목"].notna() &
+    (df["종목"] != "") &
+    (df["종목"] != "안전자산비율") &
+    (df["종목"] != "현금1")
+]
 
-    total_profit = total_eval - total_buy
-    total_rate = (total_profit / total_buy * 100) if total_buy else 0
+df["계좌"] = df["계좌"].replace("", pd.NA).ffill()
 
-    # ── 상단 요약 카드 ──
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💰 총 매입금액", f"{total_buy:,}원")
-    col2.metric("📈 총 평가금액", f"{total_eval:,}원")
-    col3.metric(
-        "💹 총 수익",
-        f"{total_profit:,}원",
-        delta=f"{total_rate:.2f}%"
+for col in ["주식수", "현재주식가격"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace(",", "").str.replace(" ", ""),
+            errors="coerce"
+        ).fillna(0)
+
+# ── 현재가 자동 조회 ──────────────────────────────────────
+with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
+    prices = {}
+    for _, row in df.iterrows():
+        code = str(row.get("종목코드", ""))
+        if code and code not in prices:
+            price = get_current_price(code)
+            prices[code] = price if price > 0 else int(
+                str(row.get("현재주식가격", 0)).replace(",", "") or 0
+            )
+
+    df["실시간가격"] = df["종목코드"].astype(str).map(prices)
+    df["현재가치"] = df["주식수"] * df["실시간가격"]
+
+# 계좌별 투자원금
+account_totals = {}
+for _, row in df.iterrows():
+    acct = row["계좌"]
+    if acct not in account_totals:
+        raw = str(row.get("연금 총액", "0")).replace(",", "").replace(" ", "")
+        try:
+            account_totals[acct] = int(float(raw)) if raw else 0
+        except:
+            account_totals[acct] = 0
+
+# ── 상단 요약 카드 ────────────────────────────────────────
+total_eval = df["현재가치"].sum()
+total_invest = sum(account_totals.values())
+total_profit = total_eval - total_invest
+total_rate = (total_profit / total_invest * 100) if total_invest else 0
+
+st.divider()
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("💰 총 투자금액", f"{total_invest:,.0f}원")
+c2.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
+c3.metric("💹 총 수익", f"{total_profit:,.0f}원", delta=f"{total_rate:.2f}%")
+c4.metric("📂 계좌 수", f"{df['계좌'].nunique()}개")
+
+st.divider()
+
+# ── 시각화 ────────────────────────────────────────────────
+import plotly.express as px
+
+col1, col2 = st.columns(2)
+
+# 계좌별 자산 비중 파이차트
+with col1:
+    st.subheader("🥧 계좌별 자산 비중")
+    acct_df = df.groupby("계좌")["현재가치"].sum().reset_index()
+    acct_df = acct_df[acct_df["현재가치"] > 0]
+
+    fig_pie = px.pie(
+        acct_df,
+        values="현재가치",
+        names="계좌",
+        hole=0.4,
+        color_discrete_sequence=px.colors.qualitative.Set3
     )
+    fig_pie.update_traces(
+        textposition="inside",
+        textinfo="percent+label",
+        hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
+    )
+    fig_pie.update_layout(
+        margin=dict(t=20, b=20, l=20, r=20),
+        height=400
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-    st.divider()
+# 종목별 현재가치 막대차트
+with col2:
+    st.subheader("📊 종목별 현재가치")
+    stock_df = df.groupby("종목")["현재가치"].sum().reset_index()
+    stock_df = stock_df[stock_df["현재가치"] > 0].sort_values("현재가치", ascending=True)
 
-    # ── 종목별 카드 ──
-    st.subheader("📋 보유 종목")
-    for i, row in enumerate(rows):
-        profit = row["평가손익"]
-        rate = row["수익률(%)"]
-        emoji = "🟢" if profit >= 0 else "🔴"
+    fig_bar = px.bar(
+        stock_df,
+        x="현재가치",
+        y="종목",
+        orientation="h",
+        color="현재가치",
+        color_continuous_scale="Blues",
+        text=stock_df["현재가치"].apply(lambda x: f"{x/100000000:.1f}억")
+    )
+    fig_bar.update_traces(textposition="outside")
+    fig_bar.update_layout(
+        showlegend=False,
+        coloraxis_showscale=False,
+        margin=dict(t=20, b=20, l=20, r=80),
+        height=400,
+        xaxis_title="",
+        yaxis_title=""
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
 
-        with st.expander(f"{emoji} {row['종목명']}  |  현재가: {row['현재가']:,}원  |  수익률: {rate:+.2f}%"):
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("보유수량", f"{row['수량']:,}주")
-            c2.metric("매입단가", f"{row['매입단가']:,}원")
-            c3.metric("평가손익", f"{profit:,}원", delta=f"{rate:+.2f}%")
-            c4.metric("평가금액", f"{row['평가금액']:,}원")
+st.divider()
 
-            if st.button(f"🗑️ {row['종목명']} 삭제", key=f"del_{i}"):
-                st.session_state.stocks = [
-                    s for s in st.session_state.stocks
-                    if s["code"] != row["종목코드"]
-                ]
-                save_stocks(st.session_state.stocks)  # 파일에 저장
-                st.rerun()
+# ── 계좌별 상세 현황 ──────────────────────────────────────
+st.subheader("📋 계좌별 상세 현황")
 
-    st.divider()
+for acct in df["계좌"].unique():
+    acct_data = df[df["계좌"] == acct].copy()
+    acct_eval = acct_data["현재가치"].sum()
+    acct_invest = account_totals.get(acct, 0)
+    acct_profit = acct_eval - acct_invest
+    acct_rate = (acct_profit / acct_invest * 100) if acct_invest else 0
+    emoji = "🟢" if acct_profit >= 0 else "🔴"
 
-    # ── 전체 테이블 ──
-    st.subheader("📑 전체 현황표")
-    df = pd.DataFrame(rows)
-    df_display = df[["종목명", "수량", "매입단가", "현재가", "매입금액", "평가금액", "평가손익", "수익률(%)"]].copy()
-    df_display["매입단가"] = df_display["매입단가"].apply(lambda x: f"{x:,}")
-    df_display["현재가"] = df_display["현재가"].apply(lambda x: f"{x:,}")
-    df_display["매입금액"] = df_display["매입금액"].apply(lambda x: f"{x:,}")
-    df_display["평가금액"] = df_display["평가금액"].apply(lambda x: f"{x:,}")
-    df_display["평가손익"] = df_display["평가손익"].apply(lambda x: f"{x:+,}")
-    df_display["수익률(%)"] = df_display["수익률(%)"].apply(lambda x: f"{x:+.2f}%")
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    with st.expander(
+        f"{emoji} {acct}  |  평가금액: {acct_eval:,.0f}원  |  수익률: {acct_rate:+.2f}%"
+    ):
+        m1, m2, m3 = st.columns(3)
+        m1.metric("투자금액", f"{acct_invest:,.0f}원")
+        m2.metric("평가금액", f"{acct_eval:,.0f}원")
+        m3.metric("수익", f"{acct_profit:,.0f}원", delta=f"{acct_rate:+.2f}%")
+
+        display_df = acct_data[["종목", "주식수", "실시간가격", "현재가치"]].copy()
+        display_df.columns = ["종목명", "보유수량", "현재가(원)", "평가금액(원)"]
+        display_df["보유수량"] = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
+        display_df["현재가(원)"] = display_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
+        display_df["평가금액(원)"] = display_df["평가금액(원)"].apply(lambda x: f"{x:,.0f}")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ── 전체 종목 현황표 ──────────────────────────────────────
+st.subheader("📑 전체 종목 현황표")
+full_df = df[["계좌", "종목", "주식수", "실시간가격", "현재가치"]].copy()
+full_df.columns = ["계좌", "종목명", "보유수량", "현재가(원)", "평가금액(원)"]
+full_df["보유수량"] = full_df["보유수량"].apply(lambda x: f"{int(x):,}")
+full_df["현재가(원)"] = full_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
+full_df["평가금액(원)"] = full_df["평가금액(원)"].apply(lambda x: f"{x:,.0f}")
+st.dataframe(full_df, use_container_width=True, hide_index=True)
