@@ -393,3 +393,118 @@ full_df["현재가(원)"] = full_df["현재가(원)"].apply(lambda x: f"{int(x):
 full_df["평가금액(원)"] = full_df["평가금액(원)"].apply(lambda x: f"{x:,.0f}")
 full_df["오늘변동(원)"] = full_df["오늘변동(원)"].apply(lambda x: f"{x:+,.0f}")
 st.dataframe(full_df, use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ── 월별 자산 추이 그래프
+st.subheader("📈 월별 자산 추이")
+
+# summary 데이터에서 월별 자산 추출
+if summary_values:
+    monthly_data = []
+    current_year_val = None
+    for row in summary_values[9:]:  # 10행부터 데이터
+        if len(row) < 3:
+            continue
+        year_str = str(row[0]).strip()
+        month_str = str(row[1]).strip().replace("월", "")
+        asset_str = str(row[2]).strip().replace(",", "")
+        profit_str = str(row[3]).strip().replace(",", "") if len(row) > 3 else ""
+        rate_str = str(row[4]).strip().replace(",", "") if len(row) > 4 else ""
+
+        if year_str:
+            current_year_val = year_str.replace("년", "")
+        try:
+            year = int(current_year_val) if current_year_val else 0
+            month = int(month_str)
+            asset = float(asset_str) if asset_str else 0
+            profit = float(profit_str) if profit_str else 0
+            rate = float(rate_str) if rate_str else 0
+            if asset > 0:
+                monthly_data.append({
+                    "연월": f"{year}년 {month:02d}월",
+                    "연도": year,
+                    "월": month,
+                    "자산": asset,
+                    "수익금": profit,
+                    "수익률": rate,
+                })
+        except:
+            continue
+
+    if monthly_data:
+        mdf = pd.DataFrame(monthly_data)
+        mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
+
+        # 현재 자산 추가 (오늘 기준)
+        import datetime
+        now = datetime.datetime.now()
+        mdf_today = pd.DataFrame([{
+            "연월": f"{now.year}년 {now.month:02d}월(현재)",
+            "연도": now.year,
+            "월": now.month,
+            "자산": total_eval,
+            "수익금": 0,
+            "수익률": 0,
+        }])
+        # 현재월 데이터가 없으면 추가
+        if not ((mdf["연도"] == now.year) & (mdf["월"] == now.month) & (mdf["자산"] == total_eval)).any():
+            mdf = pd.concat([mdf, mdf_today], ignore_index=True)
+
+        tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
+
+        with tab1:
+            fig_asset = px.area(
+                mdf,
+                x="연월",
+                y="자산",
+                markers=True,
+                color_discrete_sequence=["#1f77b4"],
+                labels={"자산": "자산(원)", "연월": ""},
+            )
+            fig_asset.update_traces(
+                hovertemplate="%{x}<br>자산: %{y:,.0f}원",
+                line=dict(width=2),
+                marker=dict(size=8)
+            )
+            fig_asset.update_layout(
+                height=400,
+                margin=dict(t=20, b=20, l=20, r=20),
+                yaxis=dict(tickformat=",.0f"),
+                xaxis=dict(tickangle=-45)
+            )
+            st.plotly_chart(fig_asset, use_container_width=True)
+
+        with tab2:
+            # 수익률 막대그래프
+            rate_df = mdf[mdf["수익률"] != 0].copy()
+            rate_df["색상"] = rate_df["수익률"].apply(lambda x: "상승" if x >= 0 else "하락")
+            fig_rate = px.bar(
+                rate_df,
+                x="연월",
+                y="수익률",
+                color="색상",
+                color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
+                text=rate_df["수익률"].apply(lambda x: f"{x:+.2f}%"),
+                labels={"수익률": "수익률(%)", "연월": ""},
+            )
+            fig_rate.update_traces(textposition="outside")
+            fig_rate.update_layout(
+                height=400,
+                margin=dict(t=20, b=40, l=20, r=20),
+                xaxis=dict(tickangle=-45),
+                yaxis=dict(title="수익률(%)"),
+                showlegend=True,
+                legend=dict(title=""),
+                xaxis_title="",
+                shapes=[dict(
+                    type="line", yref="y", y0=0, y1=0,
+                    xref="paper", x0=0, x1=1,
+                    line=dict(color="gray", width=1)
+                )]
+            )
+            st.plotly_chart(fig_rate, use_container_width=True)
+    else:
+        st.info("summary 탭에 월별 데이터가 없습니다.")
+else:
+    st.info("summary 탭을 불러올 수 없습니다.")
