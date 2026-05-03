@@ -153,11 +153,6 @@ with col_refresh:
 
 try:
     df = load_data()
-    # 개인투자용국채 행 확인
-    국채행 = df[df["종목"].str.contains("국채", na=False)]
-    if not 국채행.empty:
-        st.write("🔍 국채 행 원본값:", 국채행[["종목", "종목코드", "주식수", "현재주식가격", "현재가치"]].to_dict())
-    st.stop()
 except Exception as e:
     import traceback
     st.error(f"구글 시트 연결 실패: {e}")
@@ -207,21 +202,11 @@ with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
     df["실시간가격"] = df["종목코드"].astype(str).map(prices)
     df["실시간가치"] = df["주식수"] * df["실시간가격"]
 
-    # 실시간가격이 0인 종목은 G열(현재가치) 값을 그대로 사용
-    # (개인투자용국채 등 네이버 금융에서 조회 불가한 종목)
-    mask = df["실시간가치"] <= 0
-    df.loc[mask, "실시간가치"] = pd.to_numeric(
-        df.loc[mask, "현재가치"].astype(str).str.replace(",", "").str.replace(" ", ""),
-        errors="coerce"
-    ).fillna(0)
-    df.loc[mask, "실시간가격"] = pd.to_numeric(
-        df.loc[mask, "현재주식가격"].astype(str).str.replace(",", "").str.replace(" ", ""),
-        errors="coerce"
-    ).fillna(0)
-    
-    # 그래도 0이면 주식수가 1인 경우 현재가치를 직접 대입
-    mask2 = (df["실시간가치"] <= 0) & (df["주식수"] > 0)
-    df.loc[mask2, "실시간가치"] = df.loc[mask2, "현재가치"]
+    # 실시간가치가 0이거나 종목코드가 없는 종목은 G열(현재가치) 사용
+    # 현재가치는 이미 숫자형으로 변환되어 있음
+    mask = (df["실시간가치"] <= 0) | (df["종목코드"].astype(str).str.strip() == "")
+    df.loc[mask, "실시간가치"] = df.loc[mask, "현재가치"]
+    df.loc[mask, "실시간가격"] = df.loc[mask, "현재주식가격"]
 
 # 계좌별 투자원금 (필터링 전에 저장한 값 사용)
 account_totals = acct_total_map
