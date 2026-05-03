@@ -202,6 +202,12 @@ with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
     df["실시간가격"] = df["종목코드"].astype(str).map(prices)
     df["실시간가치"] = df["주식수"] * df["실시간가격"]
 
+    # 실시간가격이 0인 종목은 G열(현재가치) 값을 그대로 사용
+    # (개인투자용국채 등 네이버 금융에서 조회 불가한 종목)
+    mask = df["실시간가치"] == 0
+    df.loc[mask, "실시간가치"] = df.loc[mask, "현재가치"]
+    df.loc[mask, "실시간가격"] = df.loc[mask, "현재주식가격"]
+
 # 계좌별 투자원금 (필터링 전에 저장한 값 사용)
 account_totals = acct_total_map
 
