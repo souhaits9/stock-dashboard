@@ -431,6 +431,12 @@ st.divider()
 st.subheader("📈 월별 자산 추이")
 
 # summary 데이터에서 월별 자산 추출 (개선된 파싱)
+# 디버그: 행25~30 원본값 확인
+if summary_values:
+    with st.expander("🔍 디버그 (행24~30)"):
+        for i in range(24, min(31, len(summary_values))):
+            st.write(f"행{i+1} (인덱스{i}): {summary_values[i][:6]}")
+
 if summary_values:
     monthly_data = []
     current_year = None
