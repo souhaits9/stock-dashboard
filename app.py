@@ -431,12 +431,6 @@ st.divider()
 st.subheader("📈 월별 자산 추이")
 
 # summary 데이터에서 월별 자산 추출 (개선된 파싱)
-# 디버그: 행25~30 원본값 확인
-if summary_values:
-    with st.expander("🔍 디버그 (행24~30)"):
-        for i in range(24, min(31, len(summary_values))):
-            st.write(f"행{i+1} (인덱스{i}): {summary_values[i][:6]}")
-
 if summary_values:
     monthly_data = []
     current_year = None
@@ -444,13 +438,18 @@ if summary_values:
         if len(row) < 2:
             continue
 
-        # 연도 파싱 (숫자 또는 "2025년" 형태 모두 처리)
+        # 연도 파싱 - 숫자(2026) 또는 문자열("2026년") 모두 처리
         year_raw = row[0]
-        if year_raw != "" and year_raw is not None:
-            try:
-                current_year = int(float(str(year_raw).replace("년", "").strip()))
-            except:
-                pass
+        if year_raw != "" and year_raw is not None and str(year_raw).strip() != "":
+            year_clean = str(year_raw).strip().replace("년", "").strip()
+            # 숫자만 추출
+            import re
+            year_digits = re.sub(r"[^0-9]", "", year_clean)
+            if year_digits:
+                try:
+                    current_year = int(year_digits)
+                except:
+                    pass
 
         if current_year is None:
             continue
