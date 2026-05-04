@@ -486,32 +486,24 @@ if summary_values:
                 "수익률": 0,
             })
 
-    with st.expander("🔍 파싱된 monthly_data"):
-        for d in monthly_data:
-            st.write(d)
-
     if monthly_data:
         mdf = pd.DataFrame(monthly_data)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
 
-        # 구글 시트에 데이터가 있는 마지막 월까지만 사용
-        # (현재월 조작 없이 시트 데이터 그대로 사용)
-        mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
-
         # 수익률 직접 계산 (float 타입으로 명시)
-        mdf["수익률"] = 0.0  # float 타입으로 초기화
-        for i in range(len(mdf)):
-            if i == 0:
-                mdf.at[i, "수익률"] = 0.0
+        rates = [0.0]
+        for i in range(1, len(mdf)):
+            prev_asset = float(mdf.at[i-1, "자산"])
+            profit = float(mdf.at[i, "수익금"])
+            curr_asset = float(mdf.at[i, "자산"])
+            if prev_asset > 0:
+                if profit != 0:
+                    rates.append(round(profit / prev_asset * 100, 3))
+                else:
+                    rates.append(round((curr_asset - prev_asset) / prev_asset * 100, 3))
             else:
-                prev_asset = float(mdf.at[i-1, "자산"])
-                curr_asset = float(mdf.at[i, "자산"])
-                profit = float(mdf.at[i, "수익금"])
-                if prev_asset > 0:
-                    if profit != 0:
-                        mdf.at[i, "수익률"] = round(profit / prev_asset * 100, 3)
-                    else:
-                        mdf.at[i, "수익률"] = round((curr_asset - prev_asset) / prev_asset * 100, 3)
+                rates.append(0.0)
+        mdf["수익률"] = rates
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
@@ -539,7 +531,7 @@ if summary_values:
 
         with tab2:
             # 수익률 막대그래프
-            rate_df = mdf[mdf["수익률"] != 0].copy()
+            rate_df = mdf[mdf.index > 0].copy()  # 첫번째 행(기준월) 제외
             rate_df["색상"] = rate_df["수익률"].apply(lambda x: "상승" if x >= 0 else "하락")
             fig_rate = px.bar(
                 rate_df,
