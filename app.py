@@ -269,6 +269,10 @@ with col2:
     st.subheader("📊 종목별 실시간 평가금액")
     stock_df = df.groupby("종목")["실시간가치"].sum().reset_index()
     stock_df = stock_df[stock_df["실시간가치"] > 0].sort_values("실시간가치", ascending=True)
+    total_stock = stock_df["실시간가치"].sum()
+    stock_df["표시텍스트"] = stock_df["실시간가치"].apply(
+        lambda x: f"{x/100000000:.1f}억"
+    )
     fig_bar = px.bar(
         stock_df,
         x="실시간가치",
@@ -276,13 +280,17 @@ with col2:
         orientation="h",
         color="실시간가치",
         color_continuous_scale="Blues",
-        text=stock_df["실시간가치"].apply(lambda x: f"{x/100000000:.1f}억")
+        text="표시텍스트"
     )
-    fig_bar.update_traces(textposition="outside")
+    fig_bar.update_traces(
+        textposition="inside",
+        insidetextanchor="middle",
+        textfont=dict(color="white", size=11)
+    )
     fig_bar.update_layout(
         showlegend=False,
         coloraxis_showscale=False,
-        margin=dict(t=20, b=20, l=20, r=80),
+        margin=dict(t=20, b=20, l=20, r=20),
         height=500,
         xaxis_title="",
         yaxis_title=""
@@ -292,10 +300,20 @@ with col2:
 # 오늘 자산변동 차트
 with col3:
     st.subheader("📅 오늘 종목별 자산변동")
-    change_df = df.groupby("종목")["자산변동"].sum().reset_index()
+    change_df = df.groupby("종목").agg(
+        자산변동=("자산변동", "sum"),
+        실시간가치=("실시간가치", "sum")
+    ).reset_index()
     change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
     change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
-    change_df["표시금액"] = change_df["자산변동"].apply(lambda x: f"{x:+,.0f}원")
+    # 변동률 계산 (전일가치 = 실시간가치 - 자산변동)
+    change_df["전일가치"] = change_df["실시간가치"] - change_df["자산변동"]
+    change_df["변동률"] = change_df.apply(
+        lambda r: r["자산변동"] / r["전일가치"] * 100 if r["전일가치"] > 0 else 0, axis=1
+    )
+    change_df["표시텍스트"] = change_df.apply(
+        lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)", axis=1
+    )
     fig_change = px.bar(
         change_df,
         x="자산변동",
@@ -303,13 +321,17 @@ with col3:
         orientation="h",
         color="색상",
         color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
-        text="표시금액"
+        text="표시텍스트"
     )
-    fig_change.update_traces(textposition="outside")
+    fig_change.update_traces(
+        textposition="inside",
+        insidetextanchor="middle",
+        textfont=dict(color="white", size=10)
+    )
     fig_change.update_layout(
         showlegend=True,
         legend=dict(title=""),
-        margin=dict(t=20, b=20, l=20, r=120),
+        margin=dict(t=20, b=20, l=20, r=20),
         height=500,
         xaxis_title="",
         yaxis_title="",
