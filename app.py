@@ -73,7 +73,8 @@ def load_summary():
         except:
             sheet_url = creds_info["SHEET_URL"]
         sheet = client.open_by_url(sheet_url).worksheet("summary")
-        all_values = sheet.get_all_values()
+        # value_render_option="UNFORMATTED_VALUE" 로 수식 결과값 읽기
+        all_values = sheet.get_all_values(value_render_option="UNFORMATTED_VALUE")
         return all_values
     except:
         return []
