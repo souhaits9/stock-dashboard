@@ -476,6 +476,14 @@ if summary_values:
             except:
                 profit = 0
 
+        # 수익률 파싱 (시트값 그대로 사용)
+        rate = 0.0
+        if len(row) > 4 and row[4] != "":
+            try:
+                rate = float(str(row[4]).replace(",", ""))
+            except:
+                rate = 0.0
+
         if asset > 0:
             monthly_data.append({
                 "연월": f"{current_year}년 {month:02d}월",
@@ -483,27 +491,12 @@ if summary_values:
                 "월": month,
                 "자산": asset,
                 "수익금": profit,
-                "수익률": 0,
+                "수익률": rate,
             })
 
     if monthly_data:
         mdf = pd.DataFrame(monthly_data)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
-
-        # 수익률 직접 계산 (float 타입으로 명시)
-        rates = [0.0]
-        for i in range(1, len(mdf)):
-            prev_asset = float(mdf.at[i-1, "자산"])
-            profit = float(mdf.at[i, "수익금"])
-            curr_asset = float(mdf.at[i, "자산"])
-            if prev_asset > 0:
-                if profit != 0:
-                    rates.append(round(profit / prev_asset * 100, 3))
-                else:
-                    rates.append(round((curr_asset - prev_asset) / prev_asset * 100, 3))
-            else:
-                rates.append(0.0)
-        mdf["수익률"] = rates
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
