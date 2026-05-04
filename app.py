@@ -486,6 +486,10 @@ if summary_values:
                 "수익률": 0,
             })
 
+    with st.expander("🔍 파싱된 monthly_data"):
+        for d in monthly_data:
+            st.write(d)
+
     if monthly_data:
         mdf = pd.DataFrame(monthly_data)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
