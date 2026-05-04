@@ -430,48 +430,56 @@ st.divider()
 # ── 월별 자산 추이 그래프
 st.subheader("📈 월별 자산 추이")
 
-# 디버그: summary 원본값 확인
-with st.expander("🔍 summary 원본 데이터 확인 (디버그)"):
-    if summary_values:
-        st.write(f"총 행 수: {len(summary_values)}")
-        st.write("10행 이후 데이터 (월별 자산):")
-        for i, row in enumerate(summary_values[9:25], start=10):
-            st.write(f"행{i}: {row[:6]}")
-    else:
-        st.write("summary_values가 비어있음")
-
-# summary 데이터에서 월별 자산 추출
+# summary 데이터에서 월별 자산 추출 (개선된 파싱)
 if summary_values:
     monthly_data = []
-    current_year_val = None
-    for row in summary_values[9:]:  # 10행부터 데이터
-        if len(row) < 3:
+    current_year = None
+    for row in summary_values[9:]:  # 10행부터
+        if len(row) < 2:
             continue
-        year_str = str(row[0]).strip()
-        month_str = str(row[1]).strip().replace("월", "")
-        asset_str = str(row[2]).strip().replace(",", "")
-        profit_str = str(row[3]).strip().replace(",", "") if len(row) > 3 else ""
-        rate_str = str(row[4]).strip().replace(",", "") if len(row) > 4 else ""
 
-        if year_str:
-            current_year_val = year_str.replace("년", "")
+        # 연도 파싱 (숫자 또는 "2025년" 형태 모두 처리)
+        year_raw = row[0]
+        if year_raw != "" and year_raw is not None:
+            try:
+                current_year = int(float(str(year_raw).replace("년", "").strip()))
+            except:
+                pass
+
+        if current_year is None:
+            continue
+
+        # 월 파싱
         try:
-            year = int(current_year_val) if current_year_val else 0
-            month = int(month_str)
-            asset = float(asset_str) if asset_str else 0
-            profit = float(profit_str) if profit_str else 0
-            rate = float(rate_str) if rate_str else 0
-            if asset > 0:
-                monthly_data.append({
-                    "연월": f"{year}년 {month:02d}월",
-                    "연도": year,
-                    "월": month,
-                    "자산": asset,
-                    "수익금": profit,
-                    "수익률": rate,  # 나중에 직접 계산으로 덮어씀
-                })
+            month = int(float(str(row[1]).replace("월", "").strip()))
         except:
             continue
+
+        # 자산 파싱
+        asset = 0
+        if len(row) > 2 and row[2] != "":
+            try:
+                asset = float(str(row[2]).replace(",", ""))
+            except:
+                asset = 0
+
+        # 수익금 파싱
+        profit = 0
+        if len(row) > 3 and row[3] != "":
+            try:
+                profit = float(str(row[3]).replace(",", ""))
+            except:
+                profit = 0
+
+        if asset > 0:
+            monthly_data.append({
+                "연월": f"{current_year}년 {month:02d}월",
+                "연도": current_year,
+                "월": month,
+                "자산": asset,
+                "수익금": profit,
+                "수익률": 0,
+            })
 
     if monthly_data:
         mdf = pd.DataFrame(monthly_data)
