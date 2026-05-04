@@ -329,7 +329,7 @@ with col3:
 
     fig_change.update_traces(
         textposition="outside",
-        textfont=dict(color="#333333", size=10)
+        textfont=dict(color="#333333", size=13, family="Arial Black")
     )
     fig_change.update_layout(
         showlegend=True,
@@ -457,7 +457,7 @@ if summary_values:
                     "월": month,
                     "자산": asset,
                     "수익금": profit,
-                    "수익률": rate,
+                    "수익률": rate,  # 나중에 직접 계산으로 덮어씀
                 })
         except:
             continue
@@ -469,6 +469,21 @@ if summary_values:
         # 구글 시트에 데이터가 있는 마지막 월까지만 사용
         # (현재월 조작 없이 시트 데이터 그대로 사용)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
+
+        # 수익률 직접 계산 (시트 수식 문제 우회)
+        for i in range(len(mdf)):
+            if i == 0:
+                mdf.at[i, "수익률"] = 0
+            else:
+                prev_asset = mdf.at[i-1, "자산"]
+                curr_asset = mdf.at[i, "자산"]
+                profit = mdf.at[i, "수익금"]
+                if prev_asset > 0:
+                    # 수익금이 있으면 수익금/전월자산, 없으면 자산변동률
+                    if profit != 0:
+                        mdf.at[i, "수익률"] = profit / prev_asset * 100
+                    else:
+                        mdf.at[i, "수익률"] = (curr_asset - prev_asset) / prev_asset * 100
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
