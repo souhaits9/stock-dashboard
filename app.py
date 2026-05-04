@@ -466,37 +466,9 @@ if summary_values:
         mdf = pd.DataFrame(monthly_data)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
 
-        # 현재월 실시간 자산으로 항상 교체/추가
-        import datetime
-        now = datetime.datetime.now()
-
-        # 전월 자산 (수익률 계산용)
-        prev_month = now.month - 1 if now.month > 1 else 12
-        prev_year = now.year if now.month > 1 else now.year - 1
-        prev_row = mdf[(mdf["연도"] == prev_year) & (mdf["월"] == prev_month)]
-        prev_asset = prev_row["자산"].values[0] if not prev_row.empty else total_eval
-        today_rate = ((total_eval - prev_asset) / prev_asset * 100) if prev_asset > 0 else 0
-        today_profit = total_eval - prev_asset
-
-        # 현재월 행 무조건 제거 후 실시간 값으로 추가
-        mdf = mdf[~((mdf["연도"] == now.year) & (mdf["월"] == now.month))].reset_index(drop=True)
-        mdf_today = pd.DataFrame([{
-            "연월": f"{now.year}년 {now.month:02d}월(현재)",
-            "연도": now.year,
-            "월": now.month,
-            "자산": total_eval,
-            "수익금": today_profit,
-            "수익률": round(today_rate, 3),
-        }])
-        mdf = pd.concat([mdf, mdf_today], ignore_index=True)
+        # 구글 시트에 데이터가 있는 마지막 월까지만 사용
+        # (현재월 조작 없이 시트 데이터 그대로 사용)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
-        # 연월 라벨 재생성 (현재월 표시 포함)
-        mdf["연월"] = mdf.apply(
-            lambda r: f"{int(r['연도'])}년 {int(r['월']):02d}월(현재)"
-            if (r["연도"] == now.year and r["월"] == now.month)
-            else f"{int(r['연도'])}년 {int(r['월']):02d}월",
-            axis=1
-        )
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
