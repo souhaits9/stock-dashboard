@@ -489,20 +489,20 @@ if summary_values:
         # (현재월 조작 없이 시트 데이터 그대로 사용)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
 
-        # 수익률 직접 계산 (시트 수식 문제 우회)
+        # 수익률 직접 계산 (float 타입으로 명시)
+        mdf["수익률"] = 0.0  # float 타입으로 초기화
         for i in range(len(mdf)):
             if i == 0:
-                mdf.at[i, "수익률"] = 0
+                mdf.at[i, "수익률"] = 0.0
             else:
-                prev_asset = mdf.at[i-1, "자산"]
-                curr_asset = mdf.at[i, "자산"]
-                profit = mdf.at[i, "수익금"]
+                prev_asset = float(mdf.at[i-1, "자산"])
+                curr_asset = float(mdf.at[i, "자산"])
+                profit = float(mdf.at[i, "수익금"])
                 if prev_asset > 0:
-                    # 수익금이 있으면 수익금/전월자산, 없으면 자산변동률
                     if profit != 0:
-                        mdf.at[i, "수익률"] = profit / prev_asset * 100
+                        mdf.at[i, "수익률"] = round(profit / prev_asset * 100, 3)
                     else:
-                        mdf.at[i, "수익률"] = (curr_asset - prev_asset) / prev_asset * 100
+                        mdf.at[i, "수익률"] = round((curr_asset - prev_asset) / prev_asset * 100, 3)
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
