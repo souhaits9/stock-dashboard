@@ -430,6 +430,16 @@ st.divider()
 # ── 월별 자산 추이 그래프
 st.subheader("📈 월별 자산 추이")
 
+# 디버그: summary 원본값 확인
+with st.expander("🔍 summary 원본 데이터 확인 (디버그)"):
+    if summary_values:
+        st.write(f"총 행 수: {len(summary_values)}")
+        st.write("10행 이후 데이터 (월별 자산):")
+        for i, row in enumerate(summary_values[9:25], start=10):
+            st.write(f"행{i}: {row[:6]}")
+    else:
+        st.write("summary_values가 비어있음")
+
 # summary 데이터에서 월별 자산 추출
 if summary_values:
     monthly_data = []
