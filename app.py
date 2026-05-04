@@ -58,7 +58,7 @@ def load_data():
     return df
 
 # ── summary 탭 로딩 (연간/월간 수익률)
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_summary():
     try:
         creds_info = st.secrets["gcp_service_account"]
@@ -478,18 +478,25 @@ if summary_values:
         today_rate = ((total_eval - prev_asset) / prev_asset * 100) if prev_asset > 0 else 0
         today_profit = total_eval - prev_asset
 
-        # 현재월 행 제거 후 실시간 값으로 추가
-        mdf = mdf[~((mdf["연도"] == now.year) & (mdf["월"] == now.month))].copy()
+        # 현재월 행 무조건 제거 후 실시간 값으로 추가
+        mdf = mdf[~((mdf["연도"] == now.year) & (mdf["월"] == now.month))].reset_index(drop=True)
         mdf_today = pd.DataFrame([{
             "연월": f"{now.year}년 {now.month:02d}월(현재)",
             "연도": now.year,
             "월": now.month,
             "자산": total_eval,
             "수익금": today_profit,
-            "수익률": today_rate,
+            "수익률": round(today_rate, 3),
         }])
         mdf = pd.concat([mdf, mdf_today], ignore_index=True)
         mdf = mdf.sort_values(["연도", "월"]).reset_index(drop=True)
+        # 연월 라벨 재생성 (현재월 표시 포함)
+        mdf["연월"] = mdf.apply(
+            lambda r: f"{int(r['연도'])}년 {int(r['월']):02d}월(현재)"
+            if (r["연도"] == now.year and r["월"] == now.month)
+            else f"{int(r['연도'])}년 {int(r['월']):02d}월",
+            axis=1
+        )
 
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
