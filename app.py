@@ -285,7 +285,7 @@ with col2:
     fig_bar.update_traces(
         textposition="inside",
         insidetextanchor="middle",
-        textfont=dict(color="white", size=11)
+        textfont=dict(color="#FFFF00", size=11, family="Arial Black")
     )
     fig_bar.update_layout(
         showlegend=False,
@@ -323,10 +323,13 @@ with col3:
         color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
         text="표시텍스트"
     )
+    # x축 범위: 좌우 대칭 (0 기준)
+    max_abs = change_df["자산변동"].abs().max()
+    x_range = [-max_abs * 1.3, max_abs * 1.3]
+
     fig_change.update_traces(
-        textposition="inside",
-        insidetextanchor="middle",
-        textfont=dict(color="white", size=10)
+        textposition="outside",
+        textfont=dict(color="#333333", size=10)
     )
     fig_change.update_layout(
         showlegend=True,
@@ -335,7 +338,12 @@ with col3:
         height=500,
         xaxis_title="",
         yaxis_title="",
-        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor="gray")
+        xaxis=dict(
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor="gray",
+            range=x_range
+        )
     )
     st.plotly_chart(fig_change, use_container_width=True)
 
