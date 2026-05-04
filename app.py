@@ -501,6 +501,7 @@ if summary_values:
         tab1, tab2 = st.tabs(["📊 자산 추이", "📉 월별 수익률"])
 
         with tab1:
+            all_order = mdf["연월"].tolist()
             fig_asset = px.area(
                 mdf,
                 x="연월",
@@ -508,6 +509,7 @@ if summary_values:
                 markers=True,
                 color_discrete_sequence=["#1f77b4"],
                 labels={"자산": "자산(원)", "연월": ""},
+                category_orders={"연월": all_order},
             )
             fig_asset.update_traces(
                 hovertemplate="%{x}<br>자산: %{y:,.0f}원",
@@ -518,7 +520,7 @@ if summary_values:
                 height=400,
                 margin=dict(t=20, b=20, l=20, r=20),
                 yaxis=dict(tickformat=",.0f"),
-                xaxis=dict(tickangle=-45)
+                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=all_order)
             )
             st.plotly_chart(fig_asset, use_container_width=True)
 
@@ -526,6 +528,8 @@ if summary_values:
             # 수익률 막대그래프
             rate_df = mdf[mdf.index > 0].copy()  # 첫번째 행(기준월) 제외
             rate_df["색상"] = rate_df["수익률"].apply(lambda x: "상승" if x >= 0 else "하락")
+            # 연월 순서 고정 (문자열 정렬 문제 방지)
+            month_order = rate_df["연월"].tolist()
             fig_rate = px.bar(
                 rate_df,
                 x="연월",
@@ -534,12 +538,13 @@ if summary_values:
                 color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
                 text=rate_df["수익률"].apply(lambda x: f"{x:+.2f}%"),
                 labels={"수익률": "수익률(%)", "연월": ""},
+                category_orders={"연월": month_order},
             )
             fig_rate.update_traces(textposition="outside")
             fig_rate.update_layout(
                 height=400,
                 margin=dict(t=20, b=40, l=20, r=20),
-                xaxis=dict(tickangle=-45),
+                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order),
                 yaxis=dict(title="수익률(%)"),
                 showlegend=True,
                 legend=dict(title=""),
