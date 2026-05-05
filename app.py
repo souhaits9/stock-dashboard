@@ -325,33 +325,31 @@ with col3:
         color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"},
         text="표시텍스트"
     )
-    # 텍스트 초기화 (trace별로 개별 설정)
-    fig_change.update_traces(textfont=dict(size=11, family="Arial Black"))
+    # 상승/하락 모두 annotation으로 0 기준선 기준 텍스트 표시
+    fig_change.update_traces(text=[""] * 100)  # 막대 텍스트 모두 제거
 
-    for trace in fig_change.data:
-        if trace.name == "하락":
-            # 하락: 막대 안쪽 오른쪽 끝 (0 기준선 쪽) - inside + end
-            trace.textposition = "inside"
-            trace.insidetextanchor = "end"
-            trace.textfont = dict(color="#1f77b4", size=11, family="Arial Black")
-        else:
-            # 상승: 막대 텍스트 비우고 annotation으로 0 왼쪽에 표시
-            trace.text = [""] * len(trace.text)
-
-    # 상승: annotation으로 0 기준선 왼쪽에 빨간 글씨
-    for _, row in change_df[change_df["자산변동"] >= 0].iterrows():
+    for _, row in change_df.iterrows():
         label = f"{row['자산변동']:+,.0f}원 ({row['변동률']:+.2f}%)"
-        fig_change.add_annotation(
-            x=0, y=row["종목"],
-            text=label,
-            xanchor="right",
-            showarrow=False,
-            font=dict(color="#d62728", size=11, family="Arial Black"),
-            bgcolor="rgba(255,255,180,0.7)",
-            bordercolor="rgba(255,255,150,0.9)",
-            borderwidth=1,
-            xshift=-8
-        )
+        if row["자산변동"] < 0:
+            # 하락: 0 기준선 오른쪽에 파란 글씨
+            fig_change.add_annotation(
+                x=0, y=row["종목"],
+                text=label,
+                xanchor="left",
+                showarrow=False,
+                font=dict(color="#1f77b4", size=11, family="Arial Black"),
+                xshift=8
+            )
+        else:
+            # 상승: 0 기준선 왼쪽에 빨간 글씨
+            fig_change.add_annotation(
+                x=0, y=row["종목"],
+                text=label,
+                xanchor="right",
+                showarrow=False,
+                font=dict(color="#d62728", size=11, family="Arial Black"),
+                xshift=-8
+            )
     max_abs = change_df["자산변동"].abs().max()
     x_range = [-max_abs * 1.5, max_abs * 1.5]
     fig_change.update_layout(
