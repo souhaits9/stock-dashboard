@@ -545,36 +545,55 @@ if summary_values:
             st.plotly_chart(fig_asset, use_container_width=True)
 
         with tab2:
-            # 수익률 막대그래프
+            import plotly.graph_objects as go
             rate_df = mdf.copy()
-            rate_df["색상"] = rate_df["수익률"].apply(lambda x: "상승" if x >= 0 else "하락")
             month_order = rate_df["연월"].tolist()
-            fig_rate = px.bar(
-                rate_df,
-                x="연월",
-                y="수익률",
-                color="색상",
-                color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"},
+            colors = rate_df["수익률"].apply(lambda x: "#d62728" if x >= 0 else "#1f77b4").tolist()
+
+            fig_dual = go.Figure()
+
+            # 막대: 수익금
+            fig_dual.add_trace(go.Bar(
+                x=rate_df["연월"],
+                y=rate_df["수익금"],
+                name="수익금",
+                marker_color=colors,
+                yaxis="y1",
+                text=rate_df["수익금"].apply(
+                    lambda x: f"{x/100000000:.2f}억" if abs(x) >= 100000000 else f"{x/10000:.0f}만"
+                ),
+                textposition="outside",
+                textfont=dict(size=10),
+            ))
+
+            # 라인: 수익률 (회색)
+            fig_dual.add_trace(go.Scatter(
+                x=rate_df["연월"],
+                y=rate_df["수익률"],
+                name="수익률(%)",
+                mode="lines+markers+text",
+                line=dict(color="gray", width=2),
+                marker=dict(color="gray", size=7),
                 text=rate_df["수익률"].apply(lambda x: f"{x:+.2f}%"),
-                labels={"수익률": "수익률(%)", "연월": ""},
-                category_orders={"연월": month_order},
-            )
-            fig_rate.update_traces(textposition="outside")
-            fig_rate.update_layout(
-                height=400,
-                margin=dict(t=20, b=40, l=20, r=20),
+                textposition="top center",
+                textfont=dict(size=9, color="gray"),
+                yaxis="y2",
+            ))
+
+            fig_dual.update_layout(
+                height=450,
+                margin=dict(t=30, b=40, l=20, r=60),
                 xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order),
-                yaxis=dict(title="수익률(%)"),
-                showlegend=True,
-                legend=dict(title=""),
-                xaxis_title="",
+                yaxis=dict(title="수익금(원)", tickformat=",.0f", showgrid=True),
+                yaxis2=dict(title="수익률(%)", overlaying="y", side="right", showgrid=False),
+                legend=dict(x=0.01, y=0.99),
                 shapes=[dict(
                     type="line", yref="y", y0=0, y1=0,
                     xref="paper", x0=0, x1=1,
-                    line=dict(color="gray", width=1)
-                )]
+                    line=dict(color="lightgray", width=1, dash="dot")
+                )],
             )
-            st.plotly_chart(fig_rate, use_container_width=True)
+            st.plotly_chart(fig_dual, use_container_width=True)
     else:
         st.info("summary 탭에 월별 데이터가 없습니다.")
 else:
