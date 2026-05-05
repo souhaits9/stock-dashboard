@@ -312,8 +312,9 @@ with col3:
     change_df["변동률"] = change_df.apply(
         lambda r: r["자산변동"] / r["전일가치"] * 100 if r["전일가치"] > 0 else 0, axis=1
     )
+    # 하락: outside(오른쪽), 상승: annotation으로 0 기준선 왼쪽에 표시
     change_df["표시텍스트"] = change_df.apply(
-        lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)", axis=1
+        lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)" if r["자산변동"] < 0 else "", axis=1
     )
     fig_change = px.bar(
         change_df,
@@ -324,22 +325,22 @@ with col3:
         color_discrete_map={"상승": "#1f77b4", "하락": "#d62728"},
         text="표시텍스트"
     )
-    # x축 범위: 좌우 대칭 (0 기준)
-    max_abs = change_df["자산변동"].abs().max()
-    x_range = [-max_abs * 1.3, max_abs * 1.3]
-
-    # 상승/하락별 텍스트 위치: 음수는 오른쪽(inside end), 양수는 왼쪽(inside start) 아니면 outside
     fig_change.update_traces(
+        textposition="outside",
         textfont=dict(color="#333333", size=11, family="Arial Black")
     )
-    # 각 trace별로 텍스트 위치 설정
-    for trace in fig_change.data:
-        if trace.name == "하락":
-            trace.textposition = "outside"  # 음수막대: 왼쪽 바깥 → plotly에서는 outside가 오른쪽으로 표시
-            trace.insidetextanchor = "end"
-        else:
-            trace.textposition = "outside"  # 양수막대: 오른쪽 바깥
-            trace.insidetextanchor = "start"
+    for _, row in change_df[change_df["자산변동"] >= 0].iterrows():
+        label = f"{row['자산변동']:+,.0f}원 ({row['변동률']:+.2f}%)"
+        fig_change.add_annotation(
+            x=0, y=row["종목"],
+            text=label,
+            xanchor="right",
+            showarrow=False,
+            font=dict(color="#333333", size=11, family="Arial Black"),
+            xshift=-8
+        )
+    max_abs = change_df["자산변동"].abs().max()
+    x_range = [-max_abs * 1.5, max_abs * 1.5]
     fig_change.update_layout(
         showlegend=True,
         legend=dict(title=""),
