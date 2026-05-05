@@ -328,10 +328,18 @@ with col3:
     max_abs = change_df["자산변동"].abs().max()
     x_range = [-max_abs * 1.3, max_abs * 1.3]
 
+    # 상승/하락별 텍스트 위치: 음수는 오른쪽(inside end), 양수는 왼쪽(inside start) 아니면 outside
     fig_change.update_traces(
-        textposition="outside",
-        textfont=dict(color="#333333", size=13, family="Arial Black")
+        textfont=dict(color="#333333", size=11, family="Arial Black")
     )
+    # 각 trace별로 텍스트 위치 설정
+    for trace in fig_change.data:
+        if trace.name == "하락":
+            trace.textposition = "outside"  # 음수막대: 왼쪽 바깥 → plotly에서는 outside가 오른쪽으로 표시
+            trace.insidetextanchor = "end"
+        else:
+            trace.textposition = "outside"  # 양수막대: 오른쪽 바깥
+            trace.insidetextanchor = "start"
     fig_change.update_layout(
         showlegend=True,
         legend=dict(title=""),
@@ -526,9 +534,8 @@ if summary_values:
 
         with tab2:
             # 수익률 막대그래프
-            rate_df = mdf[mdf.index > 0].copy()  # 첫번째 행(기준월) 제외
+            rate_df = mdf.copy()
             rate_df["색상"] = rate_df["수익률"].apply(lambda x: "상승" if x >= 0 else "하락")
-            # 연월 순서 고정 (문자열 정렬 문제 방지)
             month_order = rate_df["연월"].tolist()
             fig_rate = px.bar(
                 rate_df,
