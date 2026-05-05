@@ -552,41 +552,69 @@ if summary_values:
 
             fig_dual = go.Figure()
 
-            # 막대: 수익금
+            # 막대: 수익금 (텍스트 없이 hover만)
             fig_dual.add_trace(go.Bar(
                 x=rate_df["연월"],
                 y=rate_df["수익금"],
                 name="수익금",
                 marker_color=colors,
+                marker_opacity=0.7,
                 yaxis="y1",
-                text=rate_df["수익금"].apply(
-                    lambda x: f"{x/100000000:.2f}억" if abs(x) >= 100000000 else f"{x/10000:.0f}만"
-                ),
-                textposition="outside",
-                textfont=dict(size=10),
+                hovertemplate="%{x}<br>수익금: %{y:,.0f}원<extra></extra>",
             ))
 
-            # 라인: 수익률 (회색)
+            # 라인: 수익률 (회색, 텍스트 포함)
             fig_dual.add_trace(go.Scatter(
                 x=rate_df["연월"],
                 y=rate_df["수익률"],
                 name="수익률(%)",
                 mode="lines+markers+text",
-                line=dict(color="gray", width=2),
-                marker=dict(color="gray", size=7),
-                text=rate_df["수익률"].apply(lambda x: f"{x:+.2f}%"),
+                line=dict(color="#555555", width=2),
+                marker=dict(color="#555555", size=6),
+                text=rate_df["수익률"].apply(lambda x: f"{x:+.1f}%"),
                 textposition="top center",
-                textfont=dict(size=9, color="gray"),
+                textfont=dict(size=10, color="#555555"),
                 yaxis="y2",
+                hovertemplate="%{x}<br>수익률: %{y:+.2f}%<extra></extra>",
             ))
 
+            # y축 범위 계산
+            max_profit = rate_df["수익금"].abs().max()
+            max_rate = rate_df["수익률"].abs().max()
+
             fig_dual.update_layout(
-                height=450,
-                margin=dict(t=30, b=40, l=20, r=60),
-                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order),
-                yaxis=dict(title="수익금(원)", tickformat=",.0f", showgrid=True),
-                yaxis2=dict(title="수익률(%)", overlaying="y", side="right", showgrid=False),
-                legend=dict(x=0.01, y=0.99),
+                height=420,
+                margin=dict(t=40, b=60, l=80, r=60),
+                xaxis=dict(
+                    tickangle=-45,
+                    categoryorder="array",
+                    categoryarray=month_order,
+                    tickfont=dict(size=10)
+                ),
+                yaxis=dict(
+                    title="수익금",
+                    tickformat=".1s",  # 1M, 100K 등 축약형
+                    showgrid=True,
+                    gridcolor="rgba(200,200,200,0.3)",
+                    range=[-max_profit * 1.4, max_profit * 1.4],
+                    tickfont=dict(size=10),
+                ),
+                yaxis2=dict(
+                    title="수익률(%)",
+                    overlaying="y",
+                    side="right",
+                    showgrid=False,
+                    range=[-max_rate * 2.5, max_rate * 2.5],
+                    tickfont=dict(size=10),
+                    ticksuffix="%",
+                ),
+                legend=dict(
+                    orientation="h",
+                    x=0.5, y=1.05,
+                    xanchor="center",
+                    font=dict(size=11)
+                ),
+                plot_bgcolor="white",
                 shapes=[dict(
                     type="line", yref="y", y0=0, y1=0,
                     xref="paper", x0=0, x1=1,
