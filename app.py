@@ -192,22 +192,14 @@ for col in ["주식수", "현재주식가격", "현재가치", "연금총액", "
     ).fillna(0)
 
 # ── 현재가 자동 조회
-with st.spinner("📡 네이버 금융에서 현재가 조회 중..."):
-    prices = {}
-    for _, row in df.iterrows():
-        code = str(row.get("종목코드", ""))
-        if code and code not in prices:
-            price = get_current_price(code)
-            prices[code] = price if price > 0 else int(row.get("현재주식가격", 0))
+# 구글 시트 F열(현재주식가격)을 실시간 가격으로 사용
+# (구글 시트에서 GOOGLEFINANCE 함수로 자동 업데이트됨)
+df["실시간가격"] = df["현재주식가격"]
+df["실시간가치"] = df["주식수"] * df["실시간가격"]
 
-    df["실시간가격"] = df["종목코드"].astype(str).map(prices)
-    df["실시간가치"] = df["주식수"] * df["실시간가격"]
-
-    # 실시간가치가 0이거나 종목코드가 없는 종목은 G열(현재가치) 사용
-    # 현재가치는 이미 숫자형으로 변환되어 있음
-    mask = (df["실시간가치"] <= 0) | (df["종목코드"].astype(str).str.strip() == "")
-    df.loc[mask, "실시간가치"] = df.loc[mask, "현재가치"]
-    df.loc[mask, "실시간가격"] = df.loc[mask, "현재주식가격"]
+# G열(현재가치)이 있는 종목은 G열 우선 사용 (수식으로 계산된 값)
+mask = df["현재가치"] > 0
+df.loc[mask, "실시간가치"] = df.loc[mask, "현재가치"]
 
 # 계좌별 투자원금 (필터링 전에 저장한 값 사용)
 account_totals = acct_total_map
