@@ -57,6 +57,46 @@ def load_data():
     df = df.rename(columns=col_map)
     return df
 
+# ── 자산배분 데이터 로딩 (현기준 탭 M~P열)
+@st.cache_data(ttl=300)
+def load_allocation():
+    try:
+        creds_info = st.secrets["gcp_service_account"]
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        try:
+            sheet_url = st.secrets["SHEET_URL"]
+        except:
+            sheet_url = creds_info["SHEET_URL"]
+        sheet = client.open_by_url(sheet_url).worksheet("현기준")
+        # M18:P27 범위 읽기
+        values = sheet.get("M18:P27", value_render_option="UNFORMATTED_VALUE")
+        rows = []
+        for row in values:
+            if len(row) >= 3 and row[0] not in ["", "구분", "총액"]:
+                try:
+                    name = str(row[0]).strip()
+                    amount = float(str(row[1]).replace(",", "")) if row[1] != "" else 0
+                    current_pct = float(str(row[2]).replace(",", "")) if len(row) > 2 and row[2] != "" else 0
+                    target_pct = float(str(row[3]).replace(",", "")) if len(row) > 3 and row[3] != "" else 0
+                    if name and amount > 0:
+                        rows.append({
+                            "구분": name,
+                            "금액": amount,
+                            "현재비율": current_pct,
+                            "목표비율": target_pct,
+                            "차이": round(current_pct - target_pct, 2)
+                        })
+                except:
+                    continue
+        return rows
+    except:
+        return []
+
 # ── summary 탭 로딩 (연간/월간 수익률)
 @st.cache_data(ttl=60)
 def load_summary():
@@ -235,23 +275,81 @@ with top_left:
         st.metric("📅 이번달 수익률", "데이터 없음")
 
 with top_right:
-    st.subheader("🥧 계좌별 자산 비중")
-    acct_df = df.groupby("계좌")["실시간가치"].sum().reset_index()
-    acct_df = acct_df[acct_df["실시간가치"] > 0]
-    fig_pie = px.pie(
-        acct_df,
-        values="실시간가치",
-        names="계좌",
-        hole=0.4,
-        color_discrete_sequence=px.colors.qualitative.Set3
-    )
-    fig_pie.update_traces(
-        textposition="inside",
-        textinfo="percent+label",
-        hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
-    )
-    fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=400)
-    st.plotly_chart(fig_pie, use_container_width=True)
+    pie_col, alloc_col = st.columns(2)
+
+    with pie_col:
+        st.subheader("🥧 계좌별 자산 비중")
+        acct_df = df.groupby("계좌")["실시간가치"].sum().reset_index()
+        acct_df = acct_df[acct_df["실시간가치"] > 0]
+        fig_pie = px.pie(
+            acct_df,
+            values="실시간가치",
+            names="계좌",
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig_pie.update_traces(
+            textposition="inside",
+            textinfo="percent+label",
+            hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
+        )
+        fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with alloc_col:
+        st.subheader("🎯 자산배분 현황")
+        alloc_data = load_allocation()
+        if alloc_data:
+            alloc_df = pd.DataFrame(alloc_data)
+
+            import plotly.graph_objects as go
+            fig_alloc = go.Figure()
+
+            # 현재비율 막대
+            fig_alloc.add_trace(go.Bar(
+                name="현재",
+                x=alloc_df["구분"],
+                y=alloc_df["현재비율"],
+                marker_color="#4C72B0",
+                opacity=0.8,
+                text=alloc_df["현재비율"].apply(lambda x: f"{x:.1f}%"),
+                textposition="outside",
+                textfont=dict(size=10),
+            ))
+
+            # 목표비율 막대
+            fig_alloc.add_trace(go.Bar(
+                name="목표",
+                x=alloc_df["구분"],
+                y=alloc_df["목표비율"],
+                marker_color="#DD8452",
+                opacity=0.6,
+                text=alloc_df["목표비율"].apply(lambda x: f"{x:.0f}%"),
+                textposition="outside",
+                textfont=dict(size=10),
+            ))
+
+            fig_alloc.update_layout(
+                barmode="group",
+                height=400,
+                margin=dict(t=20, b=20, l=20, r=20),
+                legend=dict(orientation="h", x=0.5, y=1.1, xanchor="center"),
+                yaxis=dict(title="비율(%)", ticksuffix="%"),
+                xaxis=dict(tickangle=-30),
+                plot_bgcolor="white",
+            )
+            st.plotly_chart(fig_alloc, use_container_width=True)
+
+            # 차이 테이블
+            display_alloc = alloc_df[["구분", "현재비율", "목표비율", "차이"]].copy()
+            display_alloc["현재비율"] = display_alloc["현재비율"].apply(lambda x: f"{x:.2f}%")
+            display_alloc["목표비율"] = display_alloc["목표비율"].apply(lambda x: f"{x:.0f}%")
+            display_alloc["차이"] = display_alloc["차이"].apply(
+                lambda x: f"{'▲' if x > 0 else '▼' if x < 0 else '-'} {abs(x):.2f}%"
+            )
+            st.dataframe(display_alloc, use_container_width=True, hide_index=True)
+        else:
+            st.info("자산배분 데이터를 불러올 수 없습니다.")
 
 st.divider()
 
