@@ -306,48 +306,45 @@ with top_right:
             fig_alloc = go.Figure()
 
             # 현재비율 막대
+            bar_colors = ["#d62728" if row["차이"] > 0 else "#4C72B0" for _, row in alloc_df.iterrows()]
             fig_alloc.add_trace(go.Bar(
                 name="현재",
                 x=alloc_df["구분"],
                 y=alloc_df["현재비율"],
-                marker_color="#4C72B0",
-                opacity=0.8,
+                marker_color=bar_colors,
+                opacity=0.85,
                 text=alloc_df["현재비율"].apply(lambda x: f"{x:.1f}%"),
                 textposition="outside",
-                textfont=dict(size=10),
+                textfont=dict(size=11, family="Arial Black"),
             ))
 
-            # 목표비율 막대
-            fig_alloc.add_trace(go.Bar(
-                name="목표",
-                x=alloc_df["구분"],
-                y=alloc_df["목표비율"],
-                marker_color="#DD8452",
-                opacity=0.6,
-                text=alloc_df["목표비율"].apply(lambda x: f"{x:.0f}%"),
-                textposition="outside",
-                textfont=dict(size=10),
-            ))
+            # 목표비율: 각 항목마다 점선 수평선 (scatter로 표시)
+            for _, row in alloc_df.iterrows():
+                idx = alloc_df[alloc_df["구분"] == row["구분"]].index[0]
+                fig_alloc.add_trace(go.Scatter(
+                    x=[row["구분"]],
+                    y=[row["목표비율"]],
+                    mode="markers+text",
+                    marker=dict(symbol="line-ew", size=30, color="gray",
+                                line=dict(width=3, color="gray")),
+                    text=f"{row['목표비율']:.0f}%",
+                    textposition="top center",
+                    textfont=dict(size=10, color="gray"),
+                    name="목표" if idx == 0 else "",
+                    showlegend=(idx == 0),
+                    legendgroup="목표",
+                ))
 
             fig_alloc.update_layout(
-                barmode="group",
-                height=400,
-                margin=dict(t=20, b=20, l=20, r=20),
-                legend=dict(orientation="h", x=0.5, y=1.1, xanchor="center"),
+                height=420,
+                margin=dict(t=30, b=20, l=20, r=20),
+                legend=dict(orientation="h", x=0.5, y=1.08, xanchor="center"),
                 yaxis=dict(title="비율(%)", ticksuffix="%"),
                 xaxis=dict(tickangle=-30),
                 plot_bgcolor="white",
+                showlegend=True,
             )
             st.plotly_chart(fig_alloc, use_container_width=True)
-
-            # 차이 테이블
-            display_alloc = alloc_df[["구분", "현재비율", "목표비율", "차이"]].copy()
-            display_alloc["현재비율"] = display_alloc["현재비율"].apply(lambda x: f"{x:.2f}%")
-            display_alloc["목표비율"] = display_alloc["목표비율"].apply(lambda x: f"{x:.0f}%")
-            display_alloc["차이"] = display_alloc["차이"].apply(
-                lambda x: f"{'▲' if x > 0 else '▼' if x < 0 else '-'} {abs(x):.2f}%"
-            )
-            st.dataframe(display_alloc, use_container_width=True, hide_index=True)
         else:
             st.info("자산배분 데이터를 불러올 수 없습니다.")
 
