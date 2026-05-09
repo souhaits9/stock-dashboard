@@ -214,31 +214,30 @@ summary_values = load_summary()
 ytd_rate, mtd_rate, prev_year_dec, prev_month_asset = get_period_returns(summary_values, total_eval)
 
 st.divider()
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
-c2.metric("📅 오늘 자산변동", f"{today_change:+,.0f}원", delta=f"{today_rate:+.2f}%")
 
-if ytd_rate is not None:
-    ytd_change = total_eval - prev_year_dec
-    c3.metric("📆 올해 수익률", f"{ytd_rate:+.2f}%",
-              delta=f"{ytd_change:+,.0f}원", help=f"작년 12월말 자산: {prev_year_dec:,.0f}원")
-else:
-    c3.metric("📆 올해 수익률", "데이터 없음")
+# ── 레이아웃: 좌측(카드+파이차트) / 우측(종목별 평가금액 + 자산변동)
+left_col, right_col = st.columns([1, 2])
 
-if mtd_rate is not None:
-    mtd_change = total_eval - prev_month_asset
-    c4.metric("📅 이번달 수익률", f"{mtd_rate:+.2f}%",
-              delta=f"{mtd_change:+,.0f}원", help=f"전달 말 자산: {prev_month_asset:,.0f}원")
-else:
-    c4.metric("📅 이번달 수익률", "데이터 없음")
+with left_col:
+    # 상단 카드 (세로 배치)
+    st.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
+    st.metric("📅 오늘 자산변동", f"{today_change:+,.0f}원", delta=f"{today_rate:+.2f}%")
+    if ytd_rate is not None:
+        ytd_change = total_eval - prev_year_dec
+        st.metric("📆 올해 수익률", f"{ytd_rate:+.2f}%",
+                  delta=f"{ytd_change:+,.0f}원", help=f"작년 12월말 자산: {prev_year_dec:,.0f}원")
+    else:
+        st.metric("📆 올해 수익률", "데이터 없음")
+    if mtd_rate is not None:
+        mtd_change = total_eval - prev_month_asset
+        st.metric("📅 이번달 수익률", f"{mtd_rate:+.2f}%",
+                  delta=f"{mtd_change:+,.0f}원", help=f"전달 말 자산: {prev_month_asset:,.0f}원")
+    else:
+        st.metric("📅 이번달 수익률", "데이터 없음")
 
-st.divider()
+    st.divider()
 
-# ── 시각화
-col1, col2, col3 = st.columns(3)
-
-# 계좌별 자산 비중 파이차트
-with col1:
+    # 계좌별 자산 비중 파이차트
     st.subheader("🥧 계좌별 자산 비중")
     acct_df = df.groupby("계좌")["실시간가치"].sum().reset_index()
     acct_df = acct_df[acct_df["실시간가치"] > 0]
@@ -254,111 +253,109 @@ with col1:
         textinfo="percent+label",
         hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
     )
-    fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=420)
+    fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=400)
     st.plotly_chart(fig_pie, use_container_width=True)
 
-# 종목별 실시간 평가금액 막대차트
-with col2:
-    st.subheader("📊 종목별 실시간 평가금액")
-    stock_df = df.groupby("종목")["실시간가치"].sum().reset_index()
-    stock_df = stock_df[stock_df["실시간가치"] > 0].sort_values("실시간가치", ascending=True)
-    total_stock = stock_df["실시간가치"].sum()
-    stock_df["표시텍스트"] = stock_df["실시간가치"].apply(
-        lambda x: f"{x/100000000:.1f}억"
-    )
-    fig_bar = px.bar(
-        stock_df,
-        x="실시간가치",
-        y="종목",
-        orientation="h",
-        color="실시간가치",
-        color_continuous_scale="Blues",
-        text="표시텍스트"
-    )
-    fig_bar.update_traces(
-        textposition="inside",
-        insidetextanchor="middle",
-        textfont=dict(color="#FFFF00", size=11, family="Arial Black")
-    )
-    fig_bar.update_layout(
-        showlegend=False,
-        coloraxis_showscale=False,
-        margin=dict(t=20, b=20, l=20, r=20),
-        height=500,
-        xaxis_title="",
-        yaxis_title=""
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+with right_col:
+    col2, col3 = st.columns(2)
+
+    # 종목별 실시간 평가금액 막대차트
+    with col2:
+        st.subheader("📊 종목별 실시간 평가금액")
+        stock_df = df.groupby("종목")["실시간가치"].sum().reset_index()
+        stock_df = stock_df[stock_df["실시간가치"] > 0].sort_values("실시간가치", ascending=True)
+        total_stock = stock_df["실시간가치"].sum()
+        stock_df["표시텍스트"] = stock_df["실시간가치"].apply(
+            lambda x: f"{x/100000000:.1f}억"
+        )
+        fig_bar = px.bar(
+            stock_df,
+            x="실시간가치",
+            y="종목",
+            orientation="h",
+            color="실시간가치",
+            color_continuous_scale="Blues",
+            text="표시텍스트"
+        )
+        fig_bar.update_traces(
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(color="#FFFF00", size=11, family="Arial Black")
+        )
+        fig_bar.update_layout(
+            showlegend=False,
+            coloraxis_showscale=False,
+            margin=dict(t=20, b=20, l=20, r=20),
+            height=600,
+            xaxis_title="",
+            yaxis_title=""
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
 # 오늘 자산변동 차트
-with col3:
-    st.subheader("📅 오늘 종목별 자산변동")
-    change_df = df.groupby("종목").agg(
-        자산변동=("자산변동", "sum"),
-        실시간가치=("실시간가치", "sum")
-    ).reset_index()
-    change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
-    change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
-    # 변동률 계산 (전일가치 = 실시간가치 - 자산변동)
-    change_df["전일가치"] = change_df["실시간가치"] - change_df["자산변동"]
-    change_df["변동률"] = change_df.apply(
-        lambda r: r["자산변동"] / r["전일가치"] * 100 if r["전일가치"] > 0 else 0, axis=1
-    )
-    # 하락: outside(오른쪽), 상승: annotation으로 0 기준선 왼쪽에 표시
-    change_df["표시텍스트"] = change_df.apply(
-        lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)" if r["자산변동"] < 0 else "", axis=1
-    )
-    fig_change = px.bar(
-        change_df,
-        x="자산변동",
-        y="종목",
-        orientation="h",
-        color="색상",
-        color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"},
-        text="표시텍스트"
-    )
-    # 상승/하락 모두 annotation으로 0 기준선 기준 텍스트 표시
-    fig_change.update_traces(text=[""] * 100)  # 막대 텍스트 모두 제거
-
-    for _, row in change_df.iterrows():
-        label = f"{row['자산변동']:+,.0f}원 ({row['변동률']:+.2f}%)"
-        if row["자산변동"] < 0:
-            # 하락: 0 기준선 오른쪽에 파란 글씨
-            fig_change.add_annotation(
-                x=0, y=row["종목"],
-                text=label,
-                xanchor="left",
-                showarrow=False,
-                font=dict(color="#1f77b4", size=11, family="Arial Black"),
-                xshift=8
-            )
-        else:
-            # 상승: 0 기준선 왼쪽에 빨간 글씨
-            fig_change.add_annotation(
-                x=0, y=row["종목"],
-                text=label,
-                xanchor="right",
-                showarrow=False,
-                font=dict(color="#d62728", size=11, family="Arial Black"),
-                xshift=-8
-            )
-    max_abs = change_df["자산변동"].abs().max()
-    x_range = [-max_abs * 1.5, max_abs * 1.5]
-    fig_change.update_layout(
-        showlegend=True,
-        legend=dict(title=""),
-        margin=dict(t=20, b=20, l=20, r=20),
-        height=500,
-        xaxis_title="",
-        yaxis_title="",
-        xaxis=dict(
-            zeroline=True,
-            zerolinewidth=2,
-            zerolinecolor="gray",
-            range=x_range
+    with col3:
+        st.subheader("📅 오늘 종목별 자산변동")
+        change_df = df.groupby("종목").agg(
+            자산변동=("자산변동", "sum"),
+            실시간가치=("실시간가치", "sum")
+        ).reset_index()
+        change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
+        change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
+        change_df["전일가치"] = change_df["실시간가치"] - change_df["자산변동"]
+        change_df["변동률"] = change_df.apply(
+            lambda r: r["자산변동"] / r["전일가치"] * 100 if r["전일가치"] > 0 else 0, axis=1
         )
-    )
-    st.plotly_chart(fig_change, use_container_width=True)
+        change_df["표시텍스트"] = change_df.apply(
+            lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)" if r["자산변동"] < 0 else "", axis=1
+        )
+        fig_change = px.bar(
+            change_df,
+            x="자산변동",
+            y="종목",
+            orientation="h",
+            color="색상",
+            color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"},
+            text="표시텍스트"
+        )
+        fig_change.update_traces(text=[""] * 100)
+
+        for _, row in change_df.iterrows():
+            label = f"{row['자산변동']:+,.0f}원 ({row['변동률']:+.2f}%)"
+            if row["자산변동"] < 0:
+                fig_change.add_annotation(
+                    x=0, y=row["종목"],
+                    text=label,
+                    xanchor="left",
+                    showarrow=False,
+                    font=dict(color="#1f77b4", size=11, family="Arial Black"),
+                    xshift=8
+                )
+            else:
+                fig_change.add_annotation(
+                    x=0, y=row["종목"],
+                    text=label,
+                    xanchor="right",
+                    showarrow=False,
+                    font=dict(color="#d62728", size=11, family="Arial Black"),
+                    xshift=-8
+                )
+        max_abs = change_df["자산변동"].abs().max()
+        x_range = [-max_abs * 1.5, max_abs * 1.5]
+        fig_change.update_layout(
+            showlegend=True,
+            legend=dict(title=""),
+            margin=dict(t=20, b=20, l=20, r=20),
+            height=600,
+            xaxis_title="",
+            yaxis_title="",
+            xaxis=dict(
+                zeroline=True,
+                zerolinewidth=2,
+                zerolinecolor="gray",
+                range=x_range
+            )
+        )
+        st.plotly_chart(fig_change, use_container_width=True)
 
 st.divider()
 
