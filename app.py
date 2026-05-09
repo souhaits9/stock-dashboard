@@ -256,7 +256,7 @@ ytd_rate, mtd_rate, prev_year_dec, prev_month_asset = get_period_returns(summary
 st.divider()
 
 # ── 1행: 카드(좌) + 계좌별 비중(우)
-top_left, top_right = st.columns([1, 2])
+top_left, top_right = st.columns([1, 3])
 
 with top_left:
     st.metric("📈 총 평가금액", f"{total_eval:,.0f}원")
@@ -275,7 +275,7 @@ with top_left:
         st.metric("📅 이번달 수익률", "데이터 없음")
 
 with top_right:
-    pie_col, alloc_col = st.columns(2)
+    pie_col, alloc_col = st.columns([1.2, 1.8])
 
     with pie_col:
         st.subheader("🥧 계좌별 자산 비중")
