@@ -1,17 +1,22 @@
 import streamlit as st
-import requests
 import pandas as pd
-from bs4 import BeautifulSoup
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
+import plotly.graph_objects as go
+import datetime
+import re
+import logging
+
+# 로깅 설정 (터미널 및 스트림릿 로그에서 에러 추적 가능)
+logging.basicConfig(level=logging.ERROR, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ── 페이지 설정
 st.set_page_config(page_title="내 자산 관리 대시보드", page_icon="📊", layout="wide")
 
-# ── 구글 시트 연결
+# ── 구글 API 클라이언트 캐싱
 @st.cache_resource
-def get_gsheet():
+def get_gspread_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -19,17 +24,27 @@ def get_gsheet():
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"], scopes=scopes
     )
-    client = gspread.authorize(creds)
+    return gspread.authorize(creds)
+
+# ① 스프레드시트 개체 캐싱으로 open_by_url() 중복 호출 해결
+@st.cache_resource
+def get_spreadsheet():
+    client = get_gspread_client()
     try:
         sheet_url = st.secrets["SHEET_URL"]
-    except:
+    except Exception as e:
+        logging.warning(f"SHEET_URL 수집 방식 전환 (GCP 어카운트 내부 확인): {e}")
         sheet_url = st.secrets["gcp_service_account"]["SHEET_URL"]
-    return client.open_by_url(sheet_url).worksheet("현기준")
+    return client.open_by_url(sheet_url)
 
-# ── 데이터 불러오기
+def get_worksheet(sheet_name):
+    spreadsheet = get_spreadsheet()
+    return spreadsheet.worksheet(sheet_name)
+
+# ── 데이터 불러오기 (현기준 탭 A~J열)
 @st.cache_data(ttl=300)
 def load_data():
-    sheet = get_gsheet()
+    sheet = get_worksheet("현기준")
     all_values = sheet.get_all_values()
     if not all_values:
         return pd.DataFrame()
@@ -37,11 +52,8 @@ def load_data():
     headers = all_values[0][:10]   # A~J 열만
     rows = [r[:10] for r in all_values[1:]]
     df = pd.DataFrame(rows, columns=headers)
-
-    # 헤더 정리
     df.columns = df.columns.str.strip()
 
-    # 실제 컬럼명 고정 매핑 (A~J)
     col_map = {
         df.columns[0]: "계좌",
         df.columns[1]: "연금총액",
@@ -61,19 +73,7 @@ def load_data():
 @st.cache_data(ttl=300)
 def load_allocation():
     try:
-        creds_info = st.secrets["gcp_service_account"]
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-        client = gspread.authorize(creds)
-        try:
-            sheet_url = st.secrets["SHEET_URL"]
-        except:
-            sheet_url = creds_info["SHEET_URL"]
-        sheet = client.open_by_url(sheet_url).worksheet("현기준")
-        # M18:P30 범위로 확장 (항목 추가 대비)
+        sheet = get_worksheet("현기준")
         values = sheet.get("M18:P30", value_render_option="UNFORMATTED_VALUE")
         rows = []
         for row in values:
@@ -91,45 +91,36 @@ def load_allocation():
                             "목표비율": target_pct,
                             "차이": round(current_pct - target_pct, 2)
                         })
-                except:
+                except Exception as e:
+                    # ② 에러 로그 추가 후 continue
+                    logging.error(f"자산배분 개별 행 파싱 실패: {e}")
                     continue
         return rows
-    except:
+    except Exception as e:
+        # ② 에러 로그 추가 후 빈 리스트 리턴
+        logging.error(f"자산배분 데이터 로드 실패: {e}")
         return []
 
 # ── summary 탭 로딩 (연간/월간 수익률)
 @st.cache_data(ttl=60)
 def load_summary():
     try:
-        creds_info = st.secrets["gcp_service_account"]
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-        client = gspread.authorize(creds)
-        try:
-            sheet_url = st.secrets["SHEET_URL"]
-        except:
-            sheet_url = creds_info["SHEET_URL"]
-        sheet = client.open_by_url(sheet_url).worksheet("summary")
-        # value_render_option="UNFORMATTED_VALUE" 로 수식 결과값 읽기
-        all_values = sheet.get_all_values(value_render_option="UNFORMATTED_VALUE")
+        sheet = get_worksheet("summary")
+        all_values = sheet.get(value_render_option="UNFORMATTED_VALUE")
         return all_values
-    except:
+    except Exception as e:
+        # ② 에러 로그 추가 후 빈 리스트 리턴
+        logging.error(f"Summary 시트 로드 실패: {e}")
         return []
 
 def get_period_returns(summary_values, current_eval):
-    """연간/월간 수익률 계산"""
-    import datetime
     now = datetime.datetime.now()
     current_year = now.year
     current_month = now.month
 
-    # 9행(인덱스8)부터 월별 데이터: A=연도, B=월, C=자산
-    year_asset = {}   # {(year, month): asset}
+    year_asset = {}
     current_year_val = None
-    for row in summary_values[9:]:  # 10행부터 데이터
+    for row in summary_values[9:]: 
         if len(row) < 3:
             continue
         year_str = str(row[0]).strip()
@@ -143,17 +134,17 @@ def get_period_returns(summary_values, current_eval):
             asset = float(asset_str) if asset_str else 0
             if asset > 0:
                 year_asset[(year, month)] = asset
-        except:
+        except Exception as e:
+            # ② 에러 로그 추가 후 continue
+            logging.error(f"기간별 수익률 행 계산 실패: {e}")
             continue
 
-    # 올해 수익률: 작년 12월 자산 대비
     ytd_rate = None
     prev_year_dec = year_asset.get((current_year - 1, 12))
     if prev_year_dec and prev_year_dec > 0:
         ytd_change = current_eval - prev_year_dec
         ytd_rate = ytd_change / prev_year_dec * 100
 
-    # 이번달 수익률: 전달 말 자산 대비
     mtd_rate = None
     prev_month = current_month - 1 if current_month > 1 else 12
     prev_month_year = current_year if current_month > 1 else current_year - 1
@@ -164,25 +155,73 @@ def get_period_returns(summary_values, current_eval):
 
     return ytd_rate, mtd_rate, prev_year_dec, prev_month_asset
 
-# ── 네이버 금융 현재가 조회
-@st.cache_data(ttl=60)
-def get_current_price(code):
-    try:
-        clean_code = str(code).split(":")[-1].strip()
-        clean_code = "".join(filter(str.isdigit, clean_code))
-        if not clean_code:
-            return 0
-        url = f"https://finance.naver.com/item/main.naver?code={clean_code}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
-        price = soup.select_one(".today .blind")
-        return int(price.text.replace(",", "")) if price else 0
-    except:
-        return 0
+# ③ 월별 데이터 파싱 로직을 별도 함수로 분리
+def parse_monthly_data(summary_values):
+    monthly_data = []
+    current_year = None
+    
+    for row in summary_values[9:]: 
+        if len(row) < 2:
+            continue
+
+        year_raw = row[0]
+        if year_raw != "" and year_raw is not None and str(year_raw).strip() != "":
+            year_clean = str(year_raw).strip().replace("년", "").strip()
+            year_digits = re.sub(r"[^0-9]", "", year_clean)
+            if year_digits:
+                try:
+                    current_year = int(year_digits)
+                except Exception as e:
+                    logging.error(f"연도 변환 실패 ({year_digits}): {e}")
+
+        if current_year is None:
+            continue
+
+        try:
+            month = int(float(str(row[1]).replace("월", "").strip()))
+        except Exception as e:
+            logging.error(f"월 데이터 변환 실패 ({row[1]}): {e}")
+            continue
+
+        asset = 0
+        if len(row) > 2 and row[2] != "":
+            try:
+                asset = float(str(row[2]).replace(",", ""))
+            except Exception as e:
+                logging.error(f"자산 데이터 변환 실패 ({row[2]}): {e}")
+                asset = 0
+
+        profit = 0
+        if len(row) > 3 and row[3] != "":
+            try:
+                profit = float(str(row[3]).replace(",", ""))
+            except Exception as e:
+                logging.error(f"수익금 데이터 변환 실패 ({row[3]}): {e}")
+                profit = 0
+
+        rate = 0.0
+        if len(row) > 4 and row[4] != "":
+            try:
+                rate = float(str(row[4]).replace(",", ""))
+            except Exception as e:
+                logging.error(f"수익률 데이터 변환 실패 ({row[4]}): {e}")
+                rate = 0.0
+
+        if asset > 0:
+            monthly_data.append({
+                "연월": f"{current_year}년 {month:02d}월",
+                "연도": current_year,
+                "월": month,
+                "자산": asset,
+                "수익금": profit,
+                "수익률": rate,
+            })
+            
+    return monthly_data
+
 
 # ══════════════════════════════════════════════
-# 메인
+# 메인 대시보드 로직
 # ══════════════════════════════════════════════
 st.title("📊 내 자산 관리 대시보드")
 
@@ -195,18 +234,13 @@ with col_refresh:
 try:
     df = load_data()
 except Exception as e:
-    import traceback
-    st.error(f"구글 시트 연결 실패: {e}")
-    st.code(traceback.format_exc())
+    st.error(f"구글 시트 연결에 실패했습니다. Secrets 설정 및 네트워크를 확인하세요. 에러명: {e}")
     st.stop()
 
 # ── 데이터 전처리
-# 1. 계좌명 먼저 채우기 (필터링 전에 해야 병합셀이 올바르게 처리됨)
 df["계좌"] = df["계좌"].replace("", pd.NA).ffill()
-
-# 2. 연금총액도 계좌별로 먼저 채우기
 df["연금총액"] = df["연금총액"].replace("", pd.NA)
-# 계좌별 연금총액 저장 (필터링 전)
+
 acct_total_map = {}
 for _, row in df.iterrows():
     acct = row["계좌"]
@@ -214,48 +248,40 @@ for _, row in df.iterrows():
     if val and val != "nan" and acct not in acct_total_map:
         try:
             acct_total_map[acct] = float(val)
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"계좌별 연금총액 매핑 실패: {e}")
 
-# 3. 불필요한 행 제거
 df = df[
     df["종목"].notna() &
     (df["종목"].str.strip() != "") &
     (~df["종목"].str.strip().isin(["안전자산비율", "현금1"]))
 ].copy()
 
-# 숫자형 변환
 for col in ["주식수", "현재주식가격", "현재가치", "연금총액", "가격변동", "자산변동"]:
     df[col] = pd.to_numeric(
         df[col].astype(str).str.replace(",", "").str.replace(" ", ""),
         errors="coerce"
     ).fillna(0)
 
-# ── 현재가 자동 조회
-# 구글 시트 F열(현재주식가격)을 실시간 가격으로 사용
-# (구글 시트에서 GOOGLEFINANCE 함수로 자동 업데이트됨)
 df["실시간가격"] = df["현재주식가격"]
 df["실시간가치"] = df["주식수"] * df["실시간가격"]
 
-# G열(현재가치)이 있는 종목은 G열 우선 사용 (수식으로 계산된 값)
 mask = df["현재가치"] > 0
 df.loc[mask, "실시간가치"] = df.loc[mask, "현재가치"]
 
-# 계좌별 투자원금 (필터링 전에 저장한 값 사용)
 account_totals = acct_total_map
 
-# ── 상단 요약 카드
+# ── 상단 요약 카드 데이터 계산
 total_eval = df["실시간가치"].sum()
 today_change = df["자산변동"].sum()
 today_rate = (today_change / (total_eval - today_change) * 100) if (total_eval - today_change) else 0
 
-# 연간/월간 수익률 계산
 summary_values = load_summary()
 ytd_rate, mtd_rate, prev_year_dec, prev_month_asset = get_period_returns(summary_values, total_eval)
 
 st.divider()
 
-# ── 1행: 카드(좌) + 계좌별 비중(우)
+# ── 1행: 카드(좌) + 계좌별 비중 및 자산배분(우)
 top_left, top_right = st.columns([1, 3])
 
 with top_left:
@@ -263,14 +289,12 @@ with top_left:
     st.metric("📅 오늘 자산변동", f"{today_change:+,.0f}원", delta=f"{today_rate:+.2f}%")
     if ytd_rate is not None:
         ytd_change = total_eval - prev_year_dec
-        st.metric("📆 올해 수익률", f"{ytd_rate:+.2f}%",
-                  delta=f"{ytd_change:+,.0f}원", help=f"작년 12월말 자산: {prev_year_dec:,.0f}원")
+        st.metric("📆 올해 수익률", f"{ytd_rate:+.2f}%", delta=f"{ytd_change:+,.0f}원", help=f"작년 12월말 자산: {prev_year_dec:,.0f}원")
     else:
         st.metric("📆 올해 수익률", "데이터 없음")
     if mtd_rate is not None:
         mtd_change = total_eval - prev_month_asset
-        st.metric("📅 이번달 수익률", f"{mtd_rate:+.2f}%",
-                  delta=f"{mtd_change:+,.0f}원", help=f"전달 말 자산: {prev_month_asset:,.0f}원")
+        st.metric("📅 이번달 수익률", f"{mtd_rate:+.2f}%", delta=f"{mtd_change:+,.0f}원", help=f"전달 말 자산: {prev_month_asset:,.0f}원")
     else:
         st.metric("📅 이번달 수익률", "데이터 없음")
 
@@ -282,15 +306,11 @@ with top_right:
         acct_df = df.groupby("계좌")["실시간가치"].sum().reset_index()
         acct_df = acct_df[acct_df["실시간가치"] > 0]
         fig_pie = px.pie(
-            acct_df,
-            values="실시간가치",
-            names="계좌",
-            hole=0.4,
+            acct_df, values="실시간가치", names="계좌", hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Set3
         )
         fig_pie.update_traces(
-            textposition="inside",
-            textinfo="percent+label",
+            textposition="inside", textinfo="percent+label",
             hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
         )
         fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=400)
@@ -301,48 +321,31 @@ with top_right:
         alloc_data = load_allocation()
         if alloc_data:
             alloc_df = pd.DataFrame(alloc_data)
-
-            import plotly.graph_objects as go
             fig_alloc = go.Figure()
 
-            # 현재비율 막대
             bar_colors = ["#d62728" if row["차이"] > 0 else "#4C72B0" for _, row in alloc_df.iterrows()]
             fig_alloc.add_trace(go.Bar(
-                name="현재",
-                x=alloc_df["구분"],
-                y=alloc_df["현재비율"],
-                marker_color=bar_colors,
-                opacity=0.85,
+                name="현재", x=alloc_df["구분"], y=alloc_df["현재비율"],
+                marker_color=bar_colors, opacity=0.85,
                 text=alloc_df["현재비율"].apply(lambda x: f"{x:.1f}%"),
-                textposition="outside",
-                textfont=dict(size=11, family="Arial Black"),
+                textposition="outside", textfont=dict(size=11, family="Arial Black"),
             ))
 
-            # 목표비율: 각 항목마다 점선 수평선 (scatter로 표시)
             for _, row in alloc_df.iterrows():
                 idx = alloc_df[alloc_df["구분"] == row["구분"]].index[0]
                 fig_alloc.add_trace(go.Scatter(
-                    x=[row["구분"]],
-                    y=[row["목표비율"]],
-                    mode="markers+text",
-                    marker=dict(symbol="line-ew", size=30, color="gray",
-                                line=dict(width=3, color="gray")),
-                    text=f"{row['목표비율']:.0f}%",
-                    textposition="top center",
-                    textfont=dict(size=10, color="gray"),
-                    name="목표" if idx == 0 else "",
-                    showlegend=(idx == 0),
-                    legendgroup="목표",
+                    x=[row["구분"]], y=[row["목표비율"]], mode="markers+text",
+                    marker=dict(symbol="line-ew", size=30, color="gray", line=dict(width=3, color="gray")),
+                    text=f"{row['목표비율']:.0f}%", textposition="top center",
+                    textfont=dict(size=10, color="gray"), name="목표" if idx == 0 else "",
+                    showlegend=(idx == 0), legendgroup="목표",
                 ))
 
             fig_alloc.update_layout(
-                height=420,
-                margin=dict(t=30, b=20, l=20, r=20),
+                height=420, margin=dict(t=30, b=20, l=20, r=20),
                 legend=dict(orientation="h", x=0.5, y=1.08, xanchor="center"),
-                yaxis=dict(title="비율(%)", ticksuffix="%"),
-                xaxis=dict(tickangle=-30),
-                plot_bgcolor="white",
-                showlegend=True,
+                yaxis=dict(title="비율(%)", ticksuffix="%"), xaxis=dict(tickangle=-30),
+                plot_bgcolor="white", showlegend=True,
             )
             st.plotly_chart(fig_alloc, use_container_width=True)
         else:
@@ -357,105 +360,70 @@ with col2:
     st.subheader("📊 종목별 실시간 평가금액")
     stock_df = df.groupby("종목")["실시간가치"].sum().reset_index()
     stock_df = stock_df[stock_df["실시간가치"] > 0].sort_values("실시간가치", ascending=True)
-    total_stock = stock_df["실시간가치"].sum()
-    stock_df["표시텍스트"] = stock_df["실시간가치"].apply(
-        lambda x: f"{x/100000000:.1f}억"
-    )
+    stock_df["표시텍스트"] = stock_df["실시간가치"].apply(lambda x: f"{x/100000000:.1f}억" if x >= 100000000 else f"{x/10000:.0f}만")
+    
     fig_bar = px.bar(
-        stock_df,
-        x="실시간가치",
-        y="종목",
-        orientation="h",
-        color="실시간가치",
-        color_continuous_scale="Blues",
-        text="표시텍스트"
+        stock_df, x="실시간가치", y="종목", orientation="h",
+        color="실시간가치", color_continuous_scale="Blues", text="표시텍스트"
     )
     fig_bar.update_traces(
-        textposition="inside",
-        insidetextanchor="middle",
+        textposition="inside", insidetextanchor="middle",
         textfont=dict(color="#FFFF00", size=11, family="Arial Black")
     )
     fig_bar.update_layout(
-        showlegend=False,
-        coloraxis_showscale=False,
-        margin=dict(t=20, b=20, l=20, r=20),
-        height=600,
-        xaxis_title="",
-        yaxis_title=""
+        showlegend=False, coloraxis_showscale=False,
+        margin=dict(t=20, b=20, l=20, r=20), height=600, xaxis_title="", yaxis_title=""
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
-# 오늘 자산변동 차트
 with col3:
     st.subheader("📅 오늘 종목별 자산변동")
     change_df = df.groupby("종목").agg(
         자산변동=("자산변동", "sum"),
         실시간가치=("실시간가치", "sum")
     ).reset_index()
-    change_df = change_df.set_index("종목").reindex(stock_df["종목"]).reset_index()
+    
+    change_df = pd.merge(stock_df["종목"], change_df, on="종목", how="left").fillna(0)
+    
     change_df["색상"] = change_df["자산변동"].apply(lambda x: "상승" if x >= 0 else "하락")
     change_df["전일가치"] = change_df["실시간가치"] - change_df["자산변동"]
     change_df["변동률"] = change_df.apply(
         lambda r: r["자산변동"] / r["전일가치"] * 100 if r["전일가치"] > 0 else 0, axis=1
     )
-    change_df["표시텍스트"] = change_df.apply(
-        lambda r: f"{r['자산변동']:+,.0f}원 ({r['변동률']:+.2f}%)" if r["자산변동"] < 0 else "", axis=1
-    )
+    
     fig_change = px.bar(
-        change_df,
-        x="자산변동",
-        y="종목",
-        orientation="h",
-        color="색상",
-        color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"},
-        text="표시텍스트"
+        change_df, x="자산변동", y="종목", orientation="h", color="색상",
+        color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"}
     )
-    fig_change.update_traces(text=[""] * 100)
+    fig_change.update_traces(text=[""] * len(change_df))
 
     for _, row in change_df.iterrows():
         label = f"{row['자산변동']:+,.0f}원 ({row['변동률']:+.2f}%)"
         if row["자산변동"] < 0:
             fig_change.add_annotation(
-                x=0, y=row["종목"],
-                text=label,
-                xanchor="left",
-                showarrow=False,
-                font=dict(color="#1f77b4", size=11, family="Arial Black"),
-                xshift=8
+                x=0, y=row["종목"], text=label, xanchor="left", showarrow=False,
+                font=dict(color="#1f77b4", size=11, family="Arial Black"), xshift=8
             )
         else:
             fig_change.add_annotation(
-                x=0, y=row["종목"],
-                text=label,
-                xanchor="right",
-                showarrow=False,
-                font=dict(color="#d62728", size=11, family="Arial Black"),
-                xshift=-8
+                x=0, y=row["종목"], text=label, xanchor="right", showarrow=False,
+                font=dict(color="#d62728", size=11, family="Arial Black"), xshift=-8
             )
+            
     max_abs = change_df["자산변동"].abs().max()
-    x_range = [-max_abs * 1.5, max_abs * 1.5]
+    x_range = [-max_abs * 1.5, max_abs * 1.5] if max_abs > 0 else [-10000, 10000]
     fig_change.update_layout(
-        showlegend=True,
-        legend=dict(title=""),
-        margin=dict(t=20, b=20, l=20, r=20),
-        height=600,
-        xaxis_title="",
-        yaxis_title="",
-        xaxis=dict(
-            zeroline=True,
-            zerolinewidth=2,
-            zerolinecolor="gray",
-            range=x_range
-        )
+        showlegend=True, legend=dict(title=""), margin=dict(t=20, b=20, l=20, r=20),
+        height=600, xaxis_title="", yaxis_title="",
+        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor="gray", range=x_range)
     )
     st.plotly_chart(fig_change, use_container_width=True)
 
 st.divider()
 
-# ── 계좌별 상세 현황
+# ── 3행: 계좌별 상세 현황 현황표
 st.subheader("📋 계좌별 상세 현황")
 
-# 계좌 요약 테이블 먼저 표시
 summary_rows = []
 acct_details = {}
 for acct in df["계좌"].unique():
@@ -465,13 +433,10 @@ for acct in df["계좌"].unique():
     acct_profit = acct_eval - acct_invest
     acct_rate = (acct_profit / acct_invest * 100) if acct_invest else 0
     acct_today = acct_data["자산변동"].sum()
+    
     acct_details[acct] = {
-        "data": acct_data,
-        "eval": acct_eval,
-        "invest": acct_invest,
-        "profit": acct_profit,
-        "rate": acct_rate,
-        "today": acct_today,
+        "data": acct_data, "eval": acct_eval, "invest": acct_invest,
+        "profit": acct_profit, "rate": acct_rate, "today": acct_today,
     }
     today_rate = (acct_today / acct_eval * 100) if acct_eval else 0
     summary_rows.append({
@@ -487,7 +452,6 @@ st.dataframe(summary_table, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# 계좌별 상세 펼치기
 for acct, det in acct_details.items():
     acct_eval   = det["eval"]
     acct_invest = det["invest"]
@@ -496,28 +460,26 @@ for acct, det in acct_details.items():
     acct_today  = det["today"]
     acct_data   = det["data"]
     emoji       = "🟢" if acct_profit >= 0 else "🔴"
-    today_emoji = "📈" if acct_today >= 0 else "📉"
 
     with st.expander(f"{emoji} {acct}"):
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("📥 투자금액", f"{acct_invest:,.0f}원")
         m2.metric("💰 평가금액", f"{acct_eval:,.0f}원")
         m3.metric("💹 총 수익", f"{acct_profit:,.0f}원", delta=f"{acct_rate:+.2f}%")
-        m4.metric("📅 오늘 변동", f"{acct_today:+,.0f}원",
-                  delta=f"{acct_today/acct_eval*100:+.2f}%" if acct_eval else None)
+        m4.metric("📅 오늘 변동", f"{acct_today:+,.0f}원", delta=f"{acct_today/acct_eval*100:+.2f}%" if acct_eval else None)
         m5.metric("📂 종목 수", f"{len(acct_data)}개")
 
         display_df = acct_data[["종목", "주식수", "실시간가격", "실시간가치", "자산변동"]].copy()
         display_df.columns = ["종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
         display_df["보유수량"]   = display_df["보유수량"].apply(lambda x: f"{int(x):,}")
-        display_df["현재가(원)"] = display_df["현재가(원)"].apply(lambda x: f"{int(x):,}")
+        display_df["현재가(원)"] = display_df["현재가(원)"] .apply(lambda x: f"{int(x):,}")
         display_df["평가금액(원)"] = display_df["평가금액(원)"].apply(lambda x: f"{x:,.0f}")
         display_df["오늘변동(원)"] = display_df["오늘변동(원)"].apply(lambda x: f"{x:+,.0f}")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# ── 전체 종목 현황표
+# ── 4행: 전체 종목 현황표
 st.subheader("📑 전체 종목 현황표")
 full_df = df[["계좌", "종목", "주식수", "실시간가격", "실시간가치", "자산변동"]].copy()
 full_df.columns = ["계좌", "종목명", "보유수량", "현재가(원)", "평가금액(원)", "오늘변동(원)"]
@@ -529,72 +491,12 @@ st.dataframe(full_df, use_container_width=True, hide_index=True)
 
 st.divider()
 
-# ── 월별 자산 추이 그래프
+# ── 5행: 월별 자산 추이 그래프
 st.subheader("📈 월별 자산 추이")
 
-# summary 데이터에서 월별 자산 추출 (개선된 파싱)
 if summary_values:
-    monthly_data = []
-    current_year = None
-    for row in summary_values[9:]:  # 10행부터
-        if len(row) < 2:
-            continue
-
-        # 연도 파싱 - 숫자(2026) 또는 문자열("2026년") 모두 처리
-        year_raw = row[0]
-        if year_raw != "" and year_raw is not None and str(year_raw).strip() != "":
-            year_clean = str(year_raw).strip().replace("년", "").strip()
-            # 숫자만 추출
-            import re
-            year_digits = re.sub(r"[^0-9]", "", year_clean)
-            if year_digits:
-                try:
-                    current_year = int(year_digits)
-                except:
-                    pass
-
-        if current_year is None:
-            continue
-
-        # 월 파싱
-        try:
-            month = int(float(str(row[1]).replace("월", "").strip()))
-        except:
-            continue
-
-        # 자산 파싱
-        asset = 0
-        if len(row) > 2 and row[2] != "":
-            try:
-                asset = float(str(row[2]).replace(",", ""))
-            except:
-                asset = 0
-
-        # 수익금 파싱
-        profit = 0
-        if len(row) > 3 and row[3] != "":
-            try:
-                profit = float(str(row[3]).replace(",", ""))
-            except:
-                profit = 0
-
-        # 수익률 파싱 (시트값 그대로 사용)
-        rate = 0.0
-        if len(row) > 4 and row[4] != "":
-            try:
-                rate = float(str(row[4]).replace(",", ""))
-            except:
-                rate = 0.0
-
-        if asset > 0:
-            monthly_data.append({
-                "연월": f"{current_year}년 {month:02d}월",
-                "연도": current_year,
-                "월": month,
-                "자산": asset,
-                "수익금": profit,
-                "수익률": rate,
-            })
+    # ③ 파싱 전용 함수 호출로 코드 간소화 완료
+    monthly_data = parse_monthly_data(summary_values)
 
     if monthly_data:
         mdf = pd.DataFrame(monthly_data)
@@ -605,101 +507,63 @@ if summary_values:
         with tab1:
             all_order = mdf["연월"].tolist()
             fig_asset = px.area(
-                mdf,
-                x="연월",
-                y="자산",
-                markers=True,
+                mdf, x="연월", y="자산", markers=True,
                 color_discrete_sequence=["#1f77b4"],
                 labels={"자산": "자산(원)", "연월": ""},
                 category_orders={"연월": all_order},
             )
             fig_asset.update_traces(
                 hovertemplate="%{x}<br>자산: %{y:,.0f}원",
-                line=dict(width=2),
-                marker=dict(size=8)
+                line=dict(width=2), marker=dict(size=8)
             )
             fig_asset.update_layout(
-                height=400,
-                margin=dict(t=20, b=20, l=20, r=20),
+                height=400, margin=dict(t=20, b=20, l=20, r=20),
                 yaxis=dict(tickformat=",.0f"),
                 xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=all_order)
             )
             st.plotly_chart(fig_asset, use_container_width=True)
 
         with tab2:
-            import plotly.graph_objects as go
             rate_df = mdf.copy()
             month_order = rate_df["연월"].tolist()
             colors = rate_df["수익률"].apply(lambda x: "#d62728" if x >= 0 else "#1f77b4").tolist()
 
             fig_dual = go.Figure()
 
-            # 막대: 수익금 (텍스트 없이 hover만)
             fig_dual.add_trace(go.Bar(
-                x=rate_df["연월"],
-                y=rate_df["수익금"],
-                name="수익금",
-                marker_color=colors,
-                marker_opacity=0.7,
-                yaxis="y1",
+                x=rate_df["연월"], y=rate_df["수익금"], name="수익금",
+                marker_color=colors, marker_opacity=0.7, yaxis="y1",
                 hovertemplate="%{x}<br>수익금: %{y:,.0f}원<extra></extra>",
             ))
 
-            # 라인: 수익률 (회색, 텍스트 포함)
             fig_dual.add_trace(go.Scatter(
-                x=rate_df["연월"],
-                y=rate_df["수익률"],
-                name="수익률(%)",
-                mode="lines+markers+text",
-                line=dict(color="#555555", width=2),
+                x=rate_df["연월"], y=rate_df["수익률"], name="수익률(%)",
+                mode="lines+markers+text", line=dict(color="#555555", width=2),
                 marker=dict(color="#555555", size=6),
                 text=rate_df["수익률"].apply(lambda x: f"{x:+.1f}%"),
-                textposition="top center",
-                textfont=dict(size=10, color="#555555"),
-                yaxis="y2",
-                hovertemplate="%{x}<br>수익률: %{y:+.2f}%<extra></extra>",
+                textposition="top center", textfont=dict(size=10, color="#555555"),
+                yaxis="y2", hovertemplate="%{x}<br>수익률: %{y:+.2f}%<extra></extra>",
             ))
 
-            # y축 범위 계산
             max_profit = rate_df["수익금"].abs().max()
             max_rate = rate_df["수익률"].abs().max()
 
             fig_dual.update_layout(
-                height=420,
-                margin=dict(t=40, b=60, l=80, r=60),
-                xaxis=dict(
-                    tickangle=-45,
-                    categoryorder="array",
-                    categoryarray=month_order,
-                    tickfont=dict(size=10)
-                ),
+                height=420, margin=dict(t=40, b=60, l=80, r=60),
+                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order, tickfont=dict(size=10)),
                 yaxis=dict(
-                    title="수익금",
-                    tickformat=".1s",  # 1M, 100K 등 축약형
-                    showgrid=True,
-                    gridcolor="rgba(200,200,200,0.3)",
-                    range=[-max_profit * 1.4, max_profit * 1.4],
+                    title="수익금", tickformat=".1s", showgrid=True,
+                    gridcolor="rgba(200,200,200,0.3)", range=[-max_profit * 1.4, max_profit * 1.4],
                     tickfont=dict(size=10),
                 ),
                 yaxis2=dict(
-                    title="수익률(%)",
-                    overlaying="y",
-                    side="right",
-                    showgrid=False,
-                    range=[-max_rate * 2.5, max_rate * 2.5],
-                    tickfont=dict(size=10),
-                    ticksuffix="%",
+                    title="수익률(%)", overlaying="y", side="right", showgrid=False,
+                    range=[-max_rate * 2.5, max_rate * 2.5], tickfont=dict(size=10), ticksuffix="%",
                 ),
-                legend=dict(
-                    orientation="h",
-                    x=0.5, y=1.05,
-                    xanchor="center",
-                    font=dict(size=11)
-                ),
+                legend=dict(orientation="h", x=0.5, y=1.05, xanchor="center", font=dict(size=11)),
                 plot_bgcolor="white",
                 shapes=[dict(
-                    type="line", yref="y", y0=0, y1=0,
-                    xref="paper", x0=0, x1=1,
+                    type="line", yref="y", y0=0, y1=0, xref="paper", x0=0, x1=1,
                     line=dict(color="lightgray", width=1, dash="dot")
                 )],
             )
