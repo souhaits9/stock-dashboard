@@ -14,6 +14,106 @@ logging.basicConfig(level=logging.ERROR, format="%(asctime)s - %(levelname)s - %
 # ── 페이지 설정
 st.set_page_config(page_title="내 자산 관리 대시보드", page_icon="📊", layout="wide")
 
+# ── 다크 테마 (Linear/Notion 스타일) 색상 토큰
+THEME = {
+    "canvas": "#0a0a0b",
+    "surface_1": "#141516",
+    "surface_2": "#191a1b",
+    "hairline": "#23252a",
+    "hairline_strong": "#34343a",
+    "ink": "#f7f8f8",
+    "ink_muted": "#d0d6e0",
+    "ink_subtle": "#8a8f98",
+    "primary": "#5e6ad2",
+    "primary_hover": "#828fff",
+    "rise": "#e5484d",
+    "fall": "#5e9bd2",
+}
+
+# ── 커스텀 CSS (Linear/Notion 스타일 다크 테마)
+st.html(f"""
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+html, body, [class*="css"] {{
+    font-family: 'Pretendard', 'Inter', -apple-system, system-ui, 'Malgun Gothic', sans-serif !important;
+}}
+
+.stApp {{
+    background-color: {THEME['canvas']};
+}}
+
+h1, h2, h3 {{
+    letter-spacing: -0.5px;
+    font-weight: 600;
+}}
+
+div[data-testid="stMetric"] {{
+    background-color: {THEME['surface_1']};
+    border: 1px solid {THEME['hairline']};
+    border-radius: 12px;
+    padding: 16px 20px;
+}}
+
+div[data-testid="stMetricLabel"] {{
+    color: {THEME['ink_subtle']};
+}}
+
+div[data-testid="stMetricValue"] {{
+    color: {THEME['ink']};
+}}
+
+div[data-testid="stExpander"] {{
+    background-color: {THEME['surface_1']};
+    border: 1px solid {THEME['hairline']};
+    border-radius: 12px;
+}}
+
+div[data-testid="stDataFrame"] {{
+    border: 1px solid {THEME['hairline']};
+    border-radius: 8px;
+}}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {{
+    border-radius: 12px;
+}}
+
+hr {{
+    border-color: {THEME['hairline']} !important;
+}}
+
+div[data-testid="stButton"] button {{
+    background-color: {THEME['surface_1']};
+    color: {THEME['ink']};
+    border: 1px solid {THEME['hairline']};
+    border-radius: 8px;
+}}
+
+div[data-testid="stButton"] button:hover {{
+    border-color: {THEME['primary']};
+    color: {THEME['primary_hover']};
+}}
+
+div[data-testid="stTabs"] button[aria-selected="true"] {{
+    color: {THEME['primary_hover']};
+    border-bottom-color: {THEME['primary']} !important;
+}}
+
+div[data-baseweb="select"] > div {{
+    background-color: {THEME['surface_1']};
+    border-color: {THEME['hairline']};
+}}
+</style>
+""")
+
+# ── Plotly 다크 테마 공통 레이아웃
+DARK_LAYOUT = dict(
+    paper_bgcolor=THEME["canvas"],
+    plot_bgcolor=THEME["canvas"],
+    font=dict(color=THEME["ink_muted"], family="Pretendard, Inter, sans-serif"),
+)
+
+PALETTE = ["#5e6ad2", "#828fff", "#8a8f98", "#27a644", "#bbb8b1", "#3e3e44", "#a3a8f0", "#62666d"]
+
 # ── 구글 API 클라이언트 캐싱
 @st.cache_resource
 def get_gspread_client():
@@ -307,13 +407,15 @@ with top_right:
         acct_df = acct_df[acct_df["실시간가치"] > 0]
         fig_pie = px.pie(
             acct_df, values="실시간가치", names="계좌", hole=0.4,
-            color_discrete_sequence=px.colors.qualitative.Set3
+            color_discrete_sequence=PALETTE
         )
         fig_pie.update_traces(
             textposition="inside", textinfo="percent+label",
+            textfont=dict(color=THEME["ink"]),
+            marker=dict(line=dict(color=THEME["canvas"], width=2)),
             hovertemplate="%{label}<br>%{value:,.0f}원<br>%{percent}"
         )
-        fig_pie.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=400)
+        fig_pie.update_layout(**DARK_LAYOUT, margin=dict(t=20, b=20, l=20, r=20), height=400)
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with alloc_col:
@@ -323,29 +425,31 @@ with top_right:
             alloc_df = pd.DataFrame(alloc_data)
             fig_alloc = go.Figure()
 
-            bar_colors = ["#d62728" if row["차이"] > 0 else "#4C72B0" for _, row in alloc_df.iterrows()]
+            bar_colors = [THEME["rise"] if row["차이"] > 0 else THEME["primary"] for _, row in alloc_df.iterrows()]
             fig_alloc.add_trace(go.Bar(
                 name="현재", x=alloc_df["구분"], y=alloc_df["현재비율"],
-                marker_color=bar_colors, opacity=0.85,
+                marker_color=bar_colors, opacity=0.9,
                 text=alloc_df["현재비율"].apply(lambda x: f"{x:.1f}%"),
-                textposition="outside", textfont=dict(size=11, family="Arial Black"),
+                textposition="outside", textfont=dict(size=11, color=THEME["ink"], family="Pretendard"),
             ))
 
             for _, row in alloc_df.iterrows():
                 idx = alloc_df[alloc_df["구분"] == row["구분"]].index[0]
                 fig_alloc.add_trace(go.Scatter(
                     x=[row["구분"]], y=[row["목표비율"]], mode="markers+text",
-                    marker=dict(symbol="line-ew", size=30, color="gray", line=dict(width=3, color="gray")),
+                    marker=dict(symbol="line-ew", size=30, color=THEME["ink_subtle"], line=dict(width=3, color=THEME["ink_subtle"])),
                     text=f"{row['목표비율']:.0f}%", textposition="top center",
-                    textfont=dict(size=10, color="gray"), name="목표" if idx == 0 else "",
+                    textfont=dict(size=10, color=THEME["ink_subtle"]), name="목표" if idx == 0 else "",
                     showlegend=(idx == 0), legendgroup="목표",
                 ))
 
             fig_alloc.update_layout(
+                **DARK_LAYOUT,
                 height=420, margin=dict(t=30, b=20, l=20, r=20),
-                legend=dict(orientation="h", x=0.5, y=1.08, xanchor="center"),
-                yaxis=dict(title="비율(%)", ticksuffix="%"), xaxis=dict(tickangle=-30),
-                plot_bgcolor="white", showlegend=True,
+                legend=dict(orientation="h", x=0.5, y=1.08, xanchor="center", font=dict(color=THEME["ink_muted"])),
+                yaxis=dict(title="비율(%)", ticksuffix="%", gridcolor=THEME["hairline"]),
+                xaxis=dict(tickangle=-30, gridcolor=THEME["hairline"]),
+                showlegend=True,
             )
             st.plotly_chart(fig_alloc, use_container_width=True)
         else:
@@ -364,15 +468,18 @@ with col2:
     
     fig_bar = px.bar(
         stock_df, x="실시간가치", y="종목", orientation="h",
-        color="실시간가치", color_continuous_scale="Blues", text="표시텍스트"
+        color="실시간가치", color_continuous_scale=[THEME["surface_2"], THEME["primary"], THEME["primary_hover"]],
+        text="표시텍스트"
     )
     fig_bar.update_traces(
         textposition="inside", insidetextanchor="middle",
-        textfont=dict(color="#FFFF00", size=11, family="Arial Black")
+        textfont=dict(color=THEME["ink"], size=11, family="Pretendard")
     )
     fig_bar.update_layout(
+        **DARK_LAYOUT,
         showlegend=False, coloraxis_showscale=False,
-        margin=dict(t=20, b=20, l=20, r=20), height=600, xaxis_title="", yaxis_title=""
+        margin=dict(t=20, b=20, l=20, r=20), height=600, xaxis_title="", yaxis_title="",
+        xaxis=dict(gridcolor=THEME["hairline"]), yaxis=dict(gridcolor=THEME["hairline"])
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -393,7 +500,7 @@ with col3:
     
     fig_change = px.bar(
         change_df, x="자산변동", y="종목", orientation="h", color="색상",
-        color_discrete_map={"상승": "#d62728", "하락": "#1f77b4"}
+        color_discrete_map={"상승": THEME["rise"], "하락": THEME["fall"]}
     )
     fig_change.update_traces(text=[""] * len(change_df))
 
@@ -402,20 +509,22 @@ with col3:
         if row["자산변동"] < 0:
             fig_change.add_annotation(
                 x=0, y=row["종목"], text=label, xanchor="left", showarrow=False,
-                font=dict(color="#1f77b4", size=11, family="Arial Black"), xshift=8
+                font=dict(color=THEME["fall"], size=11, family="Pretendard"), xshift=8
             )
         else:
             fig_change.add_annotation(
                 x=0, y=row["종목"], text=label, xanchor="right", showarrow=False,
-                font=dict(color="#d62728", size=11, family="Arial Black"), xshift=-8
+                font=dict(color=THEME["rise"], size=11, family="Pretendard"), xshift=-8
             )
-            
+
     max_abs = change_df["자산변동"].abs().max()
     x_range = [-max_abs * 1.5, max_abs * 1.5] if max_abs > 0 else [-10000, 10000]
     fig_change.update_layout(
-        showlegend=True, legend=dict(title=""), margin=dict(t=20, b=20, l=20, r=20),
+        **DARK_LAYOUT,
+        showlegend=True, legend=dict(title="", font=dict(color=THEME["ink_muted"])),
+        margin=dict(t=20, b=20, l=20, r=20),
         height=600, xaxis_title="", yaxis_title="",
-        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor="gray", range=x_range)
+        xaxis=dict(zeroline=True, zerolinewidth=2, zerolinecolor=THEME["hairline_strong"], range=x_range, gridcolor=THEME["hairline"])
     )
     st.plotly_chart(fig_change, use_container_width=True)
 
@@ -508,40 +617,42 @@ if summary_values:
             all_order = mdf["연월"].tolist()
             fig_asset = px.area(
                 mdf, x="연월", y="자산", markers=True,
-                color_discrete_sequence=["#1f77b4"],
+                color_discrete_sequence=[THEME["primary"]],
                 labels={"자산": "자산(원)", "연월": ""},
                 category_orders={"연월": all_order},
             )
             fig_asset.update_traces(
                 hovertemplate="%{x}<br>자산: %{y:,.0f}원",
-                line=dict(width=2), marker=dict(size=8)
+                line=dict(width=2), marker=dict(size=8, color=THEME["primary_hover"]),
+                fillcolor="rgba(94, 106, 210, 0.18)"
             )
             fig_asset.update_layout(
+                **DARK_LAYOUT,
                 height=400, margin=dict(t=20, b=20, l=20, r=20),
-                yaxis=dict(tickformat=",.0f"),
-                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=all_order)
+                yaxis=dict(tickformat=",.0f", gridcolor=THEME["hairline"]),
+                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=all_order, gridcolor=THEME["hairline"])
             )
             st.plotly_chart(fig_asset, use_container_width=True)
 
         with tab2:
             rate_df = mdf.copy()
             month_order = rate_df["연월"].tolist()
-            colors = rate_df["수익률"].apply(lambda x: "#d62728" if x >= 0 else "#1f77b4").tolist()
+            colors = rate_df["수익률"].apply(lambda x: THEME["rise"] if x >= 0 else THEME["fall"]).tolist()
 
             fig_dual = go.Figure()
 
             fig_dual.add_trace(go.Bar(
                 x=rate_df["연월"], y=rate_df["수익금"], name="수익금",
-                marker_color=colors, marker_opacity=0.7, yaxis="y1",
+                marker_color=colors, marker_opacity=0.8, yaxis="y1",
                 hovertemplate="%{x}<br>수익금: %{y:,.0f}원<extra></extra>",
             ))
 
             fig_dual.add_trace(go.Scatter(
                 x=rate_df["연월"], y=rate_df["수익률"], name="수익률(%)",
-                mode="lines+markers+text", line=dict(color="#555555", width=2),
-                marker=dict(color="#555555", size=6),
+                mode="lines+markers+text", line=dict(color=THEME["ink_subtle"], width=2),
+                marker=dict(color=THEME["ink_subtle"], size=6),
                 text=rate_df["수익률"].apply(lambda x: f"{x:+.1f}%"),
-                textposition="top center", textfont=dict(size=10, color="#555555"),
+                textposition="top center", textfont=dict(size=10, color=THEME["ink_muted"]),
                 yaxis="y2", hovertemplate="%{x}<br>수익률: %{y:+.2f}%<extra></extra>",
             ))
 
@@ -549,22 +660,22 @@ if summary_values:
             max_rate = rate_df["수익률"].abs().max()
 
             fig_dual.update_layout(
+                **DARK_LAYOUT,
                 height=420, margin=dict(t=40, b=60, l=80, r=60),
-                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order, tickfont=dict(size=10)),
+                xaxis=dict(tickangle=-45, categoryorder="array", categoryarray=month_order, tickfont=dict(size=10), gridcolor=THEME["hairline"]),
                 yaxis=dict(
                     title="수익금", tickformat=".1s", showgrid=True,
-                    gridcolor="rgba(200,200,200,0.3)", range=[-max_profit * 1.4, max_profit * 1.4],
+                    gridcolor=THEME["hairline"], range=[-max_profit * 1.4, max_profit * 1.4],
                     tickfont=dict(size=10),
                 ),
                 yaxis2=dict(
                     title="수익률(%)", overlaying="y", side="right", showgrid=False,
                     range=[-max_rate * 2.5, max_rate * 2.5], tickfont=dict(size=10), ticksuffix="%",
                 ),
-                legend=dict(orientation="h", x=0.5, y=1.05, xanchor="center", font=dict(size=11)),
-                plot_bgcolor="white",
+                legend=dict(orientation="h", x=0.5, y=1.05, xanchor="center", font=dict(size=11, color=THEME["ink_muted"])),
                 shapes=[dict(
                     type="line", yref="y", y0=0, y1=0, xref="paper", x0=0, x1=1,
-                    line=dict(color="lightgray", width=1, dash="dot")
+                    line=dict(color=THEME["hairline_strong"], width=1, dash="dot")
                 )],
             )
             st.plotly_chart(fig_dual, use_container_width=True)
