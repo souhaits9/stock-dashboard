@@ -42,6 +42,19 @@ html, body, [class*="css"] {{
     background-color: {THEME['canvas']};
 }}
 
+header[data-testid="stHeader"], div[data-testid="stToolbar"], div[data-testid="stDecoration"] {{
+    background-color: {THEME['canvas']};
+    background-image: none;
+}}
+
+div[data-testid="stHeader"] * {{
+    color: {THEME['ink_muted']};
+}}
+
+section[data-testid="stSidebar"] {{
+    background-color: {THEME['surface_1']};
+}}
+
 h1, h2, h3 {{
     letter-spacing: -0.5px;
     font-weight: 600;
